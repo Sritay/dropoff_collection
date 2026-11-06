@@ -95,12 +95,13 @@ def main():
                 audit = js('''
                   let count=0,failures=[];
                   for(const p of window.CELL_POTENCY_DATA.papers){
-                    for(const tab of ['pairs','reasons','assays','provenance']){
+                    for(const tab of ['pairs','reasons','assays','sources']){
                       location.hash='paper/'+p.id+'/'+tab;
                       window.dispatchEvent(new HashChangeEvent('hashchange'));
                       let root=document.querySelector('#main');
                       if(!root.querySelector('h1')||root.querySelector('h1').textContent!==p.title) failures.push(p.id+'/'+tab);
                       if(/\\bundefined\\b|\\bNaN\\b/.test(root.textContent)) failures.push('invalid text '+p.id+'/'+tab);
+                      if(/Gemini|SHA256|AI reviewed|AI-assisted PDF|Review method|Original extraction category|Human review is still needed/.test(root.textContent)) failures.push('internal details '+p.id+'/'+tab);
                       count++;
                     }
                   }
@@ -109,8 +110,9 @@ def main():
                 assert audit['count'] == 252 and not audit['failures'], audit
                 results.append('All 252 paper section routes render without undefined/NaN text')
                 route('about')
-                assert js('return document.querySelector("#main").textContent.toLowerCase().includes("paper-local");') is False
-                results.append('Public wording no longer uses paper-local terminology')
+                assert js('return !!document.querySelector("#result-count");') is True
+                assert js("return document.querySelectorAll('[href*=about]').length;") == 0
+                results.append('Removed About route falls back to papers; navigation has no About link')
                 association = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="alvaromartins2026").id;')
                 route('paper/'+association)
                 assert js('return document.querySelectorAll(".ratio-reason").length;') == 16

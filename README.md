@@ -13,7 +13,7 @@ the compound-linked author explanations, experiments, grades and source pages.
 - `tools/browser_qa.py`: checks using the existing Firefox ESR and Marionette, without installing drivers.
 
 The website supports full-text search, mechanism/target/year/assertion filters,
-paper and pair browsing, sortable paginated tables, paper sections, compound details,
+paper and pair browsing, sortable paginated tables, paper sections with scientific source locations, compound details,
 CSV/JSON downloads and mobile layouts. Hash routes work under a GitHub Pages
 repository subpath and on refresh. All assets are local; no external scripts,
 fonts, analytics or API calls are needed.
@@ -99,3 +99,7 @@ and reconstructed chemical drawings are not part of this static release. Source
 labels, PDF pages, structure notes and supplied SMILES remain available in records.
 
 `dist/manifest.json` contains the input SHA256 hashes and export provenance.
+
+The public interface focuses on papers, compounds, assays and evidence. Collection
+methods, review workflow, file checksums and internal identifiers are kept in the
+repository and data files rather than displayed as website pages.
