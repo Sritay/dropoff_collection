@@ -80,7 +80,7 @@
   "classification_sha256": "40c88754b2f8af0812b088b974ada94a42fae1ed51fc1d6cf519426517b8d762",
   "pair_audit_path": "verification/figures/pair_counts_all_verified-11173496/pair_audit.json",
   "pair_audit_sha256": "c347c0643e77266b806490d2701a5dd0d282ebcebcace375b91ae39f771225aa",
-  "exporter_sha256": "8cae65fac274dff724f1ca274ba8404d5cbc92f27a7ce1fdc4048e78ca91a737",
+  "exporter_sha256": "b22c2e9f6758530323b95e08da82ceb4fb2390ec4c1d90412a8e4f9d56f2c3c6",
   "pdfs_included": false,
   "paid_calls": 0
 }

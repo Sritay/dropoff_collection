@@ -6,8 +6,8 @@ The original reviews and classifications are never modified.
 import argparse
 import csv
 import hashlib
-import io
 import json
+import math
 import re
 import sys
 from collections import Counter
@@ -25,21 +25,64 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def concentration_measurement(measurement):
+    """Return a calculation-only copy; preserve published labels/values in the data.
+
+    Only explicitly mapped endpoints are accepted. Negative-log molar potencies
+    are converted with c[nM] = 10**(9-p); decreasing transforms reverse bounds.
+    This does not convert association constants into dissociation constants.
+    """
+    m = dict(measurement)
+    key = re.sub(r'[^a-z0-9]', '', m['endpoint'].lower())
+    aliases = {'cellularic50':'ic50', 'ic50te':'ic50', 'bcaaic50':'ic50',
+               'ic50perm':'ic50', 'ic50external':'ic50', 'ic50biochem':'ic50',
+               'ic50cell':'ic50', 'kdapp':'kd', 'kiapp':'ki', 'growthic50':'ic50',
+               'cellpic50':'pic50'}
+    key = aliases.get(key, key)
+    if m['unit'].replace(' ', '') == '10^6M^-1':
+        return None, 'Binding association constant (1/M), not a concentration.'
+    log_value = key in {'pic50','pec50','pki','pkd','pgi50','pcc50','pdc50','pac50'}
+    if not log_value and key not in {'ic50','ec50','ki','kd','gi50','cc50','dc50','ac50','sf50','sf80','dmax50'}:
+        return None, 'Endpoint needs review before calculating a concentration ratio.'
+    if log_value and m['unit'].replace(' ', '') not in {'-log10(M)', '-log(M)'}:
+        return None, 'Log potency is not explicitly reported relative to molar concentration.'
+    if m['comparator'] not in ('=', '~', '<', '<=', '>', '>=', 'range'):
+        return None, 'Measurement bound is not recognised.'
+    values = [m.get('lower'),m.get('upper')] if m['comparator']=='range' else [m.get('value')]
+    if any(v is None or not math.isfinite(v) or (not log_value and v <= 0) for v in values):
+        return None, 'A positive concentration is needed.'
+    if len(values)==2 and values[0] > values[1]:
+        return None, 'Reported range needs review.'
+    if log_value:
+        try:
+            converted = [10.0 ** (9-v) for v in values]
+        except OverflowError:
+            return None, 'Log potency is outside the supported numerical range.'
+        if any(not math.isfinite(v) or v <= 0 for v in converted):
+            return None, 'Log potency is outside the supported numerical range.'
+        m['unit'] = 'nM'
+        if m['comparator']=='range':
+            m['lower'],m['upper'] = converted[1],converted[0]
+        else:
+            m['value'] = converted[0]
+            m['comparator'] = {'<':'>','<=':'>=','>':'<','>=':'<='}.get(m['comparator'],m['comparator'])
+    return m, None
+
+
 def ratio(bio, cell, same_target, interval, divide):
     if not same_target:
-        return {'status': 'unavailable', 'reason': 'Target relationship requires review.'}
-    endpoints = {'ic50', 'ec50', 'ki', 'kd', 'gi50', 'cc50', 'dc50', 'ac50'}
+        return {'status':'unavailable', 'reason':'Target relationship flagged in review; ratio not calculated.'}
+    normalised = []
     for m in (bio, cell):
-        if re.sub(r'[^a-z0-9]', '', m['endpoint'].lower()) not in endpoints:
-            return {'status': 'unavailable', 'reason': 'Endpoint is not a supported concentration potency.'}
-        if m['comparator'] not in ('=', '~', '<', '<=', '>', '>=', 'range'):
-            return {'status': 'unavailable', 'reason': 'Unsupported measurement comparator.'}
-        values = [m.get('lower'), m.get('upper')] if m['comparator'] == 'range' else [m.get('value')]
-        if any(v is None or v <= 0 for v in values):
-            return {'status': 'unavailable', 'reason': 'Positive concentration values are required.'}
-    result = divide(interval(cell), interval(bio))
+        converted, error = concentration_measurement(m)
+        if error:
+            return {'status':'unavailable', 'reason':error}
+        normalised.append(converted)
+    result = divide(interval(normalised[1]), interval(normalised[0]))
     if result['status'] == 'unavailable':
-        result['reason'] = 'Units cannot be converted to molar concentration.'
+        result['reason'] = 'Units cannot be converted to the same concentration scale.'
+    elif any(re.sub(r'[^a-z0-9]', '', m['endpoint'].lower()) in {'pic50','cellpic50','pgi50','pec50','pki','pkd','pcc50','pdc50','pac50'} for m in (bio,cell)):
+        result['conversion_note'] = 'Calculated after converting negative-log molar values to concentrations; inequality signs are reversed during conversion.'
     return result
 
 
@@ -130,7 +173,7 @@ def export(root, output):
                'pairs_with_eligible_reasons': sum(bool(p['eligible_claim_ids']) for d in papers for p in d['pairs']),
                'classification_methods': dict(Counter(c['classification']['classification_method'] for p in papers for c in p['claims']))}
     assert (summary['papers'], summary['pairs'], summary['claims'], summary['pairs_with_eligible_reasons']) == (63, 979, 114, 731), summary
-    dataset = {'schema_version': 1, 'corpus_date': '2026-11-06', 'summary': summary,
+    dataset = {'schema_version': 1, 'ratio_method':'concentration_units_and_negative_log_molar_v2', 'corpus_date': '2026-11-06', 'summary': summary,
                'taxonomy': read(root / 'config/reason_taxonomy.json')['causes'], 'papers': papers}
     output.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(dataset, ensure_ascii=False, separators=(',', ':'), allow_nan=False)

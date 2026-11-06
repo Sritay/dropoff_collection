@@ -108,6 +108,14 @@ def main():
                 ''')
                 assert audit['count'] == 252 and not audit['failures'], audit
                 results.append('All 252 paper section routes render without undefined/NaN text')
+                route('about')
+                assert js('return document.querySelector("#main").textContent.toLowerCase().includes("paper-local");') is False
+                results.append('Public wording no longer uses paper-local terminology')
+                association = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="alvaromartins2026").id;')
+                route('paper/'+association)
+                assert js('return document.querySelectorAll(".ratio-reason").length;') == 16
+                assert js('return [...document.querySelectorAll(".ratio-reason")].every(e=>e.textContent.includes("association constant"));') is True
+                results.append('Uncalculated ratios display a specific reason in the pair table')
                 paper = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.compounds.some(c=>[c.name,c.label,...(c.aliases||[])].includes("JBJ-07-149"))).id;')
                 route('paper/'+paper)
                 screenshot('preview-paper.png')

@@ -33,8 +33,7 @@ the hidden `.github/` directory and `dist/.nojekyll`.
    and choose **GitHub Actions**.
 3. Run the **Publish CellPotency** workflow, or push a change to `main`.
 
-Expected URL after successful deployment: `https://sritay.github.io/dropoff_collection/`.
-The URL is not a claim that deployment has already happened.
+Live site: `https://sritay.github.io/dropoff_collection/`.
 
 The workflow follows the [GitHub Pages custom workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 It publishes only `dist/`, never the research project, source PDFs, model responses,
@@ -70,7 +69,7 @@ node --check dist/app.js
 
 ## Scientific interpretation
 
-The snapshot contains 63 completed reviews, 605 paper-local compound records,
+The snapshot contains 63 completed reviews, 605 compound records (counted separately in each paper),
 979 explicit potency pairs and 114 reason claims. Compound records are not
 globally deduplicated chemical identities. 731 pairs have supported/proposed
 compound-linked reasons; 248 do not. No paper-level reason is propagated to
@@ -82,10 +81,17 @@ González2023 chameleonicity remains explicitly provisional. These are model-rev
 extractions, not human-verified facts. The displayed evidence grades are original
 model-proposed extraction grades on the 1–5 scale, with their rationale.
 
-Cell/bio ratios use existing deterministic concentration-unit and interval
-functions. Bounds, graph estimates and comparison limitations are retained.
-Logarithmic endpoints, unsupported units, nonpositive values and flagged target
-relationships do not receive computed ratios. An operational concentration ratio
+Cell/bio ratios use concentration-unit and interval functions. Explicit endpoint
+aliases such as Cellular IC50, IC50,TE, KD-APP and Ki_app are recognised without
+changing the reported labels. Negative-log molar potencies are converted using
+c[nM] = 10**(9-p), with reversed inequality signs and range endpoints. Survival
+and half-maximal degradation concentrations retain their original endpoint
+definitions. Bounds, graph estimates and comparison limitations are retained.
+Association constants in inverse-molar units, unsupported units, nonpositive
+concentrations and flagged target relationships do not receive computed ratios.
+The current snapshot has 948 calculated ratios and 31 not calculated: 16 binding
+association-constant comparisons and 15 flagged target relationships. Some
+calculated intervals have no useful bound when both measurements are censored. An operational concentration ratio
 does not establish assay equivalence or explain the mechanism of potency loss.
 
 No paper reuse license is inferred from open-access status. PDFs, figure crops

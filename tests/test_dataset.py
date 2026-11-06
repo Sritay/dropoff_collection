@@ -2,6 +2,7 @@
 import csv
 import importlib.util
 import json
+import math
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -102,6 +103,57 @@ class DatasetTests(unittest.TestCase):
         for edit in ({'endpoint':'pIC50'},{'value':0},{'value':-1},{'comparator':'unknown'}):
             self.assertEqual(exporter.ratio(m,{**m,**edit},True,dummy,divide)['status'], 'unavailable')
         self.assertEqual(exporter.ratio(m,m,False,dummy,divide)['status'], 'unavailable')
+
+    def test_negative_log_conversion_and_bound_direction(self):
+        m = {'endpoint':'pIC50','unit':'-log10(M)','value':7.89,'comparator':'=','origin':'table'}
+        converted,error = exporter.concentration_measurement(m)
+        self.assertIsNone(error)
+        self.assertAlmostEqual(converted['value'], 10**(9-7.89))
+        self.assertEqual(converted['unit'], 'nM')
+        self.assertEqual(m['unit'], '-log10(M)')
+        for a,b in [('<','>'),('<=','>='),('>','<'),('>=','<=')]:
+            converted,error = exporter.concentration_measurement({**m,'comparator':a,'value':5})
+            self.assertIsNone(error)
+            self.assertEqual(converted['comparator'], b)
+            self.assertAlmostEqual(converted['value'], 10000)
+        converted,error = exporter.concentration_measurement({**m,'comparator':'range','lower':6,'upper':8,'value':None})
+        self.assertIsNone(error)
+        self.assertEqual((converted['lower'],converted['upper']),(10,1000))
+        self.assertIsNone(exporter.concentration_measurement({**m,'value':-1})[1])
+
+    def test_descriptive_endpoints_and_association_constant(self):
+        for endpoint in ['Cellular IC50','IC50,TE','BCAA IC50','IC50,perm','IC50,external',
+                         'IC50,biochem','IC50,cell','KD-APP','Ki_app','growth IC50','SF50','SF80','Dmax50']:
+            m={'endpoint':endpoint,'unit':'nM','comparator':'=','value':2}
+            converted,error=exporter.concentration_measurement(m)
+            self.assertIsNone(error, endpoint)
+            self.assertEqual(converted, m)
+        converted,error=exporter.concentration_measurement({'endpoint':'K','unit':'10^6 M^-1','comparator':'=','value':14.2})
+        self.assertIsNone(converted)
+        self.assertIn('association constant',error)
+
+    def test_exported_log_ratios_and_remaining_exclusions(self):
+        log_pairs=0
+        reasons=Counter()
+        for paper in D['papers']:
+            ms={m['measurement_id']:m for m in paper['measurements']}
+            for pair in paper['pairs']:
+                r=pair['ratio']
+                if r['status']=='unavailable':
+                    reasons[r['reason']]+=1
+                b,c=ms[pair['biochemical_id']],ms[pair['cellular_id']]
+                if b['unit'] in ['-log10(M)','-log(M)'] and c['unit'] in ['-log10(M)','-log(M)']:
+                    log_pairs+=1
+                    self.assertNotEqual(r['status'],'unavailable')
+                    self.assertIn('conversion_note',r)
+                    if b['comparator']=='=' and c['comparator']=='=':
+                        self.assertTrue(math.isclose(r['value'],10**(b['value']-c['value']),rel_tol=1e-12))
+                    if b['comparator']=='<' and c['comparator']=='=':
+                        self.assertAlmostEqual(r['upper'],10**(b['value']-c['value']))
+                        self.assertFalse(r['upper_inclusive'])
+        self.assertEqual(log_pairs,60)
+        self.assertEqual(sum(reasons.values()),31)
+        self.assertEqual(sorted(reasons.values()),[15,16])
 
     def test_downloads_match(self):
         with (ROOT/'dist/pairs.csv').open() as f:
