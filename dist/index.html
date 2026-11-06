@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Explore reported biochemical and cellular compound potencies, author explanations and experimental evidence across 63 reviewed papers.">
+  <meta name="theme-color" content="#102c38">
+  <title>CellPotency · Literature evidence explorer</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="data.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header"><div class="header-inner">
+    <a class="brand" href="#papers" aria-label="CellPotency home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="m16 2 12 7v14l-12 7-12-7V9Z"/><path d="m4 9 12 7 12-7M16 16v14"/><circle cx="16" cy="16" r="4"/></svg><span>Cell<span class="brand-light">Potency</span></span></a>
+    <nav aria-label="Main"><a href="#papers" data-nav="papers">Papers</a><a href="#pairs" data-nav="pairs">Potency pairs</a><a href="#about" data-nav="about">About the data</a></nav>
+    <span class="release">CORPUS · 06 NOV 2026</span>
+  </div></header>
+  <main id="main" tabindex="-1"><div class="loading">Loading the reviewed literature…</div></main>
+  <footer><span>CellPotency <span class="muted">/ Literature evidence explorer</span></span><span>Model-reviewed extraction · Human adjudication pending</span></footer>
+  <dialog id="detail"><div id="detail-content"></div></dialog>
+  <noscript>This explorer needs JavaScript. <a href="data.json">Download the dataset</a> or <a href="pairs.csv">download the potency pairs CSV</a>.</noscript>
+</body>
+</html>

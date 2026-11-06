@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+validation*.json
+*.zip
+preview-*.png
+browser-qa.log
