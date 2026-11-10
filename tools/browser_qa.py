@@ -8,6 +8,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -17,12 +18,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     assert os.environ.get('SLURM_JOB_ID'), 'Use Slurm for browser QA.'
+    phase = os.environ.get('CELL_SITE_QA_PHASE')
+    if not phase:
+        for part in ['routes', 'flow']:
+            print('Starting fresh browser session:', part, flush=True)
+            subprocess.run([sys.executable, str(Path(__file__).resolve())],
+                           env={**os.environ, 'CELL_SITE_QA_PHASE': part}, check=True)
+        reports = [json.loads((ROOT / f'validation-browser-{part}.json').read_text()) for part in ['routes', 'flow']]
+        report = {'status': 'passed', 'checks': list(dict.fromkeys(c for r in reports for c in r['checks'])),
+                  'slurm_job_id': os.environ['SLURM_JOB_ID'], 'browser': 'Installed Firefox ESR',
+                  'javascript_errors': [], 'isolated_sessions': ['routes', 'flow']}
+        (ROOT/'validation-browser.json').write_text(json.dumps(report,indent=2)+'\n')
+        print(json.dumps(report,indent=2))
+        return
     with tempfile.TemporaryDirectory(prefix='potency-browser-') as temp:
         profile = Path(temp)
-        port = 28280
+        with socket.socket() as reservation:
+            reservation.bind(('127.0.0.1', 0))
+            port = reservation.getsockname()[1]
         (profile/'user.js').write_text(f'user_pref("marionette.port", {port});\nuser_pref("browser.shell.checkDefaultBrowser", false);\n')
         env = {**os.environ, 'XDG_RUNTIME_DIR': temp, 'GSETTINGS_BACKEND':'memory', 'MOZ_CRASHREPORTER_DISABLE':'1'}
-        with (ROOT/'browser-qa.log').open('w') as log:
+        with (ROOT/f'browser-qa-{phase}.log').open('w') as log:
             process = subprocess.Popen(['/usr/bin/firefox','--headless','--no-remote','--marionette','--profile',temp], stdout=log, stderr=log, env=env)
             sock = None
             try:
@@ -42,7 +58,9 @@ def main():
                     while True:
                         char = stream.read(1)
                         if char == b':': break
-                        if not char: raise RuntimeError('Marionette disconnected')
+                        if not char:
+                            print('Firefox process return code:', process.poll(), flush=True)
+                            raise RuntimeError('Marionette disconnected')
                         size.extend(char)
                     return json.loads(stream.read(int(size)))
                 receive()
@@ -62,6 +80,7 @@ def main():
                 def route(hash):
                     js(f'window.location.hash={json.dumps(hash)}; window.dispatchEvent(new HashChangeEvent("hashchange"));')
                 def screenshot(file):
+                    print('Screenshot:', file, 'Firefox running:', process.poll() is None, flush=True)
                     time.sleep(.4)  # Let resize, hash events and painting settle before capture.
                     result = command('WebDriver:TakeScreenshot', {'id':None, 'full':False, 'hash':False, 'scroll':False})
                     value = result.get('value') if isinstance(result,dict) else result
@@ -92,10 +111,17 @@ def main():
                 results.append('Compound dialog opens with both measurements and closes')
                 route('papers')
                 # Synchronous dispatch makes each route test independent of event-loop timing.
-                audit = js('''
+                audit = {'count': 0, 'failures': []}
+                paper_ids = js('return window.CELL_POTENCY_DATA.papers.map(p=>p.id);')
+                # Yield between small route batches so detached table DOM can be
+                # collected rather than retaining 315 page renders in one task.
+                for start in (range(0, len(paper_ids), 3) if phase == 'routes' else []):
+                    batch = json.dumps(paper_ids[start:start+3])
+                    print('Checking route batch', start, batch, flush=True)
+                    result = js('const paperIds=' + batch + ';' + '''
                   let count=0,failures=[];
-                  for(const p of window.CELL_POTENCY_DATA.papers){
-                    for(const tab of ['pairs','reasons','assays','sources']){
+                  for(const p of window.CELL_POTENCY_DATA.papers.filter(p=>paperIds.includes(p.id))){
+                    for(const tab of ['pairs','compounds','reasons','assays','sources']){
                       location.hash='paper/'+p.id+'/'+tab;
                       window.dispatchEvent(new HashChangeEvent('hashchange'));
                       let root=document.querySelector('#main');
@@ -107,8 +133,40 @@ def main():
                   }
                   return {count,failures};
                 ''')
-                assert audit['count'] == 252 and not audit['failures'], audit
-                results.append('All 252 paper section routes render without undefined/NaN text')
+                    audit['count'] += result['count']
+                    audit['failures'].extend(result['failures'])
+                if phase == 'routes':
+                    assert audit['count'] == 315 and not audit['failures'], audit
+                    results.append('All 315 paper section routes render without undefined/NaN text')
+                    report = {'status':'passed','checks':results,'slurm_job_id':os.environ['SLURM_JOB_ID'],
+                              'browser':'Installed Firefox ESR','javascript_errors':js('return window.qaErrors;')}
+                    assert not report['javascript_errors']
+                    (ROOT/'validation-browser-routes.json').write_text(json.dumps(report,indent=2)+'\n')
+                    return
+                route('papers')
+                js('document.querySelector("[data-action=reset]").click();let s=document.querySelector("[data-filter=smiles]");s.value="candidate";s.dispatchEvent(new Event("change",{bubbles:true}));')
+                assert js('return document.querySelector("#result-count").textContent;') == '4'
+                results.append('SMILES candidate filter finds the four control papers')
+                ndubaku = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015").id;')
+                route('paper/'+ndubaku+'/compounds')
+                assert js('return document.querySelectorAll("[data-compound]").length;') > 0
+                js('document.querySelector("[data-compound=cmp_4]").click();')
+                assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') == 2
+                assert js('return document.querySelector("#detail").textContent.includes("Connectivity differs from ChEMBL");') is True
+                assert js('return document.querySelectorAll("#detail .smiles-string textarea").length;') == 2
+                assert js('return document.querySelector("#detail").textContent.includes("further extraction is pending");') is True
+                screenshot('preview-smiles.png')
+                js('document.querySelector("[data-structure-verdict=chembl]").value="matches_paper";document.querySelector("[data-review-note]").value="Synthetic browser QA note";document.querySelector("[data-save-review]").click();')
+                assert js('return document.querySelector(".review-status").textContent.includes("Saved in this browser only");') is True
+                js('document.querySelector("[data-action=close]").click();document.querySelector("[data-compound=cmp_4]").click();')
+                assert js('return document.querySelector("[data-review-note]").value;') == 'Synthetic browser QA note'
+                assert js('return document.querySelector("[data-structure-verdict=chembl]").value;') == 'matches_paper'
+                # Changing source data invalidates the earlier verdict rather than silently reusing it.
+                js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015");p.response_sha256+="changed";document.querySelector("[data-compound=cmp_4]").click();')
+                assert js('return document.querySelector("[data-structure-verdict=chembl]").value;') == 'unreviewed'
+                assert js('return document.querySelector("#detail").textContent.includes("verdict is inactive");') is True
+                js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015");p.response_sha256=p.response_sha256.replace(/changed$/,"");')
+                results.append('Local reference/candidate SVGs render; mismatch remains visible; browser-local verdict persists and invalidates on source change')
                 route('about')
                 assert js('return !!document.querySelector("#result-count");') is True
                 assert js("return document.querySelectorAll('[href*=about]').length;") == 0
@@ -137,12 +195,16 @@ def main():
                 assert overflow['scroll'] <= overflow['width'], overflow
                 js('document.querySelector("[data-pair]").click();')
                 screenshot('preview-mobile-compound.png')
+                js('document.querySelector("[data-action=close]").click();')
+                route('paper/'+ndubaku+'/compounds')
+                js('document.querySelector("[data-compound=cmp_4]").click();')
+                screenshot('preview-mobile-smiles.png')
+                assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') == 2
                 assert js('return window.qaErrors;') == []
                 results.append('Mobile paper list and paper record fit viewport; compound dialog renders')
                 report = {'status':'passed','checks':results,'slurm_job_id':os.environ['SLURM_JOB_ID'],'browser':'Installed Firefox ESR','javascript_errors':[]}
-                (ROOT/'validation-browser.json').write_text(json.dumps(report,indent=2)+'\n')
+                (ROOT/'validation-browser-flow.json').write_text(json.dumps(report,indent=2)+'\n')
                 print(json.dumps(report,indent=2))
-                command('Marionette:Quit', {'flags':['eForceQuit']})
             finally:
                 if sock: sock.close()
                 if process.poll() is None:

@@ -80,7 +80,26 @@
   "classification_sha256": "40c88754b2f8af0812b088b974ada94a42fae1ed51fc1d6cf519426517b8d762",
   "pair_audit_path": "verification/figures/pair_counts_all_verified-11173496/pair_audit.json",
   "pair_audit_sha256": "c347c0643e77266b806490d2701a5dd0d282ebcebcace375b91ae39f771225aa",
-  "exporter_sha256": "b22c2e9f6758530323b95e08da82ceb4fb2390ec4c1d90412a8e4f9d56f2c3c6",
+  "exporter_sha256": "61b8a78498293a47408d74a6f88befe51b3fef5809eaef6c29f14ac314f6b60b",
   "pdfs_included": false,
-  "paid_calls": 0
+  "paid_calls": 0,
+  "structure_inputs": {
+    "verification/chembl37_structure_lookup-11217655/smiles_matched.csv": "50a04f80e7e80d9b4d33a0a124bf08499e0f5ce5c0d799d13350a995ef94de89",
+    "verification/smiles_pilot_ready/plan.json": "642a103036ae32bdb9ce6ae0d7db25fa1388e7dae1e18250ab494b1030cfecc4",
+    "verification/smiles_pilot_ready/compounds.json": "cb85dfd6a58c728a21890965327ad1250fc626a5d90f6630d8d42a848240b247",
+    "verification/smiles_controls_2026-11-10/plan.json": "78c27b614e38dfb4d6c6eb90312412808c678682a66d51d09e04dd5c5435da78",
+    "verification/smiles_controls_2026-11-10/compounds.json": "75305240ec9c1e9f6376e8c8fde1ced41d536deff31ea87baa70c06d01e0aeb2",
+    "verification/smiles_controls_2026-11-10/evaluation.json": "e124a2fcd1f0980fa560bbf4bd343ed58e37d2e8379c144afb78375a3dd695ab",
+    "verification/smiles_controls_followup_2026-11-10/plan.json": "df1852479e812e04cb1ff858f1a2bf7aaeca0fd35a3214f3216449372bda5fde",
+    "verification/smiles_controls_followup_2026-11-10/compounds.json": "9d48044e27f3efff692f9096b5ea06086f68914afd736b6b802e7b97a4731f79",
+    "verification/smiles_controls_followup_2026-11-10/evaluation.json": "56e2f0b6c9c1db88b67780332ded95467cfe1dea4f46a30be557fc2a2f24e080"
+  },
+  "structure_summary": {
+    "with_smiles": 236,
+    "with_chembl": 236,
+    "with_agent_candidate": 6,
+    "chembl_mapping_flagged": 11,
+    "human_accepted": 0,
+    "without_smiles": 369
+  }
 }

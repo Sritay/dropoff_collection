@@ -10,11 +10,12 @@ the compound-linked author explanations, experiments, grades and source pages.
 - `tools/export_data.py`: reproducible, read-only export from the project’s canonical completed reviews.
 - `tests/test_dataset.py`: corpus, compound-link, classification, ratio and download checks.
 - `.github/workflows/pages.yml`: validate and publish `dist/` using GitHub Actions.
-- `tools/browser_qa.py`: checks using the existing Firefox ESR and Marionette, without installing drivers.
+- `tools/browser_qa.py`: checks using the existing Firefox ESR and Marionette, without installing drivers. Route stress checks and realistic structure/review/mobile flows use separate fresh sessions.
 
-The website supports full-text search, mechanism/target/year/assertion filters,
+The website supports full-text search, mechanism/target/year/assertion and SMILES filters,
 paper and pair browsing, sortable paginated tables, paper sections with scientific source locations, compound details,
-CSV/JSON downloads and mobile layouts. Hash routes work under a GitHub Pages
+CSV/JSON downloads and mobile layouts. The **Compounds & SMILES** paper tab lists
+all compounds, including entries without a paired potency record. Hash routes work under a GitHub Pages
 repository subpath and on refresh. All assets are local; no external scripts,
 fonts, analytics or API calls are needed.
 
@@ -46,7 +47,7 @@ On Barkla, from `/users/sritay/fastscratch/assay_cell_dropoff2`:
 
 ```bash
 sbatch slurm/build_website.sbatch
-sbatch slurm/test_website_browser.sbatch
+sbatch --mem=6G slurm/test_website_browser.sbatch
 ```
 
 The export uses only direct `verification/agent_verified/*/response_verified.json`
@@ -58,6 +59,46 @@ inputs and old outputs are unchanged. No model/API calls are made.
 The exporter deliberately pins the 6 November 2026 classification/audit snapshot
 and expected totals. For a new corpus version, update the pinned paths and
 scientific regression expectations together; do not silently absorb new files.
+
+The 10 November SMILES overlay is independently joined by the canonical paper-local
+compound ID, exact response/PDF hashes and request key. It adds 236 ChEMBL reference
+entries across the same 605 compounds; 369 still have no SMILES. Six of those 236
+also have unverified extraction candidates. Four candidates match their ChEMBL graph
+exactly and two differ in connectivity. A pending follow-up never hides earlier
+candidates. Eleven database mappings retain their original review warnings, and
+graph-level stereochemical limitations remain visible separately.
+
+Structure data come from `verification/chembl37_structure_lookup-11217655/smiles_matched.csv`
+and the explicit original pilot/control/follow-up resolver exports. The manifest
+records every overlay input hash. Only scientific fields and source locations are
+published: no model request payloads, crop text/images, backend setup, budgets,
+ledgers or node-local paths. The existing RDKit installation generates 233 unique
+local structure diagrams, packed into the data assets to avoid hundreds of files.
+Exporting requires RDKit; testing or serving the exported website does not.
+
+ChEMBL 37 reference structure data are attributed to
+[ChEMBL](https://www.ebi.ac.uk/chembl/) under
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). This attribution
+does not assign that licence to the original papers, PDFs or the rest of the corpus.
+
+## Manual SMILES checks
+
+Open **Compounds & SMILES** for a paper, then **Compare**. The dialog shows ChEMBL
+references and agent candidates separately, with local molecular drawings,
+copyable exact SMILES, the ChEMBL entry link, paper page/table locations and
+automated graph comparison. Neither an automated match nor a valid graph verifies
+the paper assignment or complete stereochemistry. Candidate and mapping warnings
+remain visible when review notes are added. Original structure notes are navigation
+hints, not verified chemical truth.
+
+Each displayed SMILES has its own manual verdict (not reviewed, matches the paper,
+differs, or uncertain). Paper-viewed/ChEMBL-viewed checkboxes record what was inspected;
+they do not imply that every displayed structure is correct. Notes are saved only in
+the current browser's local storage. **Download all my reviews JSON** provides a
+backup; there is no server sync or automatic update of the research dataset. A
+verdict becomes inactive if the source response/PDF or reference/candidate SMILES
+change. Old notes remain in the downloaded backup with their data version marked
+stale. Imported human decisions remain separate from browser-local notes.
 
 Outside Barkla, with a copy of the original project:
 
@@ -94,9 +135,11 @@ association-constant comparisons and 15 flagged target relationships. Some
 calculated intervals have no useful bound when both measurements are censored. An operational concentration ratio
 does not establish assay equivalence or explain the mechanism of potency loss.
 
-No paper reuse license is inferred from open-access status. PDFs, figure crops
-and reconstructed chemical drawings are not part of this static release. Source
-labels, PDF pages, structure notes and supplied SMILES remain available in records.
+No paper reuse license is inferred from open-access status. PDFs and figure crops
+are not part of this static release. The included molecular diagrams are generated
+locally from the attributed ChEMBL/reference and unverified candidate graphs, not
+copied manuscript figures. Source labels, PDF pages and structure notes remain
+available in records; the original provided-SMILES field is preserved separately.
 
 `dist/manifest.json` contains the input SHA256 hashes and export provenance.
 
