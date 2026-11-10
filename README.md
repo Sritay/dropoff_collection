@@ -62,18 +62,23 @@ scientific regression expectations together; do not silently absorb new files.
 
 The 10 November SMILES overlay is independently joined by the canonical paper-local
 compound ID, exact response/PDF hashes and request key. It adds 236 ChEMBL reference
-entries across the same 605 compounds; 369 still have no SMILES. Six of those 236
+entries across the same 605 compounds. A separate audit of names found in paper PDFs
+adds candidates for 54 previously unresolved compounds, bringing the total with at
+least one SMILES to 290; 315 still have none. These name-derived structures remain
+unverified. Four compounds lack a nearby paper label for their names, and two have
+conflicting name-derived graphs. Both limitations are shown explicitly. Six of the 236
 also have unverified extraction candidates. Four candidates match their ChEMBL graph
 exactly and two differ in connectivity. A pending follow-up never hides earlier
 candidates. Eleven database mappings retain their original review warnings, and
 graph-level stereochemical limitations remain visible separately.
 
 Structure data come from `verification/chembl37_structure_lookup-11217655/smiles_matched.csv`
-and the explicit original pilot/control/follow-up resolver exports. The manifest
+the explicit original pilot/control/follow-up resolver exports, and the hash-bound
+`verification/smiles_opsin_name_audit_2026-11-10_v4` audit. The manifest
 records every overlay input hash. Only scientific fields and source locations are
 published: no model request payloads, crop text/images, backend setup, budgets,
-ledgers or node-local paths. The existing RDKit installation generates 233 unique
-local structure diagrams, packed into the data assets to avoid hundreds of files.
+ledgers or node-local paths. The existing RDKit installation generates local structure
+diagrams packed into the data assets to avoid hundreds of files.
 Exporting requires RDKit; testing or serving the exported website does not.
 
 ChEMBL 37 reference structure data are attributed to
@@ -84,10 +89,12 @@ does not assign that licence to the original papers, PDFs or the rest of the cor
 ## Manual SMILES checks
 
 Open **Compounds & SMILES** for a paper, then **Compare**. The dialog shows ChEMBL
-references and agent candidates separately, with local molecular drawings,
+references, paper-name/OPSIN candidates and agent candidates separately, with local molecular drawings,
 copyable exact SMILES, the ChEMBL entry link, paper page/table locations and
 automated graph comparison. Neither an automated match nor a valid graph verifies
-the paper assignment or complete stereochemistry. Candidate and mapping warnings
+the paper assignment or complete stereochemistry. A valid name conversion does not
+establish that a name belongs to the compound number or matches its drawing.
+Candidate, name-conflict, identity and mapping warnings
 remain visible when review notes are added. Original structure notes are navigation
 hints, not verified chemical truth.
 
@@ -96,8 +103,8 @@ differs, or uncertain). Paper-viewed/ChEMBL-viewed checkboxes record what was in
 they do not imply that every displayed structure is correct. Notes are saved only in
 the current browser's local storage. **Download all my reviews JSON** provides a
 backup; there is no server sync or automatic update of the research dataset. A
-verdict becomes inactive if the source response/PDF or reference/candidate SMILES
-change. Old notes remain in the downloaded backup with their data version marked
+verdict becomes inactive if the source response/PDF, a reference/candidate SMILES,
+or a paper-name candidate's names/pages/source flags change. Old notes remain in the downloaded backup with their data version marked
 stale. Imported human decisions remain separate from browser-local notes.
 
 Outside Barkla, with a copy of the original project:

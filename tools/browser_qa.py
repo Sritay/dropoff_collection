@@ -20,14 +20,14 @@ def main():
     assert os.environ.get('SLURM_JOB_ID'), 'Use Slurm for browser QA.'
     phase = os.environ.get('CELL_SITE_QA_PHASE')
     if not phase:
-        for part in ['routes', 'flow']:
+        for part in ['routes', 'flow', 'names', 'mobile-name']:
             print('Starting fresh browser session:', part, flush=True)
             subprocess.run([sys.executable, str(Path(__file__).resolve())],
                            env={**os.environ, 'CELL_SITE_QA_PHASE': part}, check=True)
-        reports = [json.loads((ROOT / f'validation-browser-{part}.json').read_text()) for part in ['routes', 'flow']]
+        reports = [json.loads((ROOT / f'validation-browser-{part}.json').read_text()) for part in ['routes', 'flow', 'names', 'mobile-name']]
         report = {'status': 'passed', 'checks': list(dict.fromkeys(c for r in reports for c in r['checks'])),
                   'slurm_job_id': os.environ['SLURM_JOB_ID'], 'browser': 'Installed Firefox ESR',
-                  'javascript_errors': [], 'isolated_sessions': ['routes', 'flow']}
+                  'javascript_errors': [], 'isolated_sessions': ['routes', 'flow', 'names', 'mobile-name']}
         (ROOT/'validation-browser.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
         return
@@ -81,6 +81,10 @@ def main():
                     js(f'window.location.hash={json.dumps(hash)}; window.dispatchEvent(new HashChangeEvent("hashchange"));')
                 def screenshot(file):
                     print('Screenshot:', file, 'Firefox running:', process.poll() is None, flush=True)
+                    if os.environ.get('CELL_SITE_QA_SCREENSHOTS') == 'none':
+                        return
+                    if os.environ.get('CELL_SITE_QA_SCREENSHOTS') == 'names' and file not in {'preview-name-conflict.png', 'preview-mobile-paper-name.png'}:
+                        return
                     time.sleep(.4)  # Let resize, hash events and painting settle before capture.
                     result = command('WebDriver:TakeScreenshot', {'id':None, 'full':False, 'hash':False, 'scroll':False})
                     value = result.get('value') if isinstance(result,dict) else result
@@ -91,6 +95,17 @@ def main():
                 command('WebDriver:Navigate', {'url':(ROOT/'dist/index.html').as_uri()})
                 assert js('return document.querySelector("#result-count").textContent;') == '63'
                 js('window.qaErrors=[];window.addEventListener("error",e=>window.qaErrors.push(e.message));')
+                if phase == 'mobile-name':
+                    command('WebDriver:SetWindowRect', {'width':390,'height':844})
+                    qian = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010").id;')
+                    route('paper/'+qian+'/compounds')
+                    js('Array.from(document.querySelectorAll("button[data-compound]")).find(e=>e.dataset.compound==="1").click();')
+                    overflow = js('let d=document.querySelector("#detail"),r=d.getBoundingClientRect();return {scroll:d.scrollWidth,width:d.clientWidth,left:r.left,right:r.right,bad:[...d.querySelectorAll("*")].filter(x=>x.scrollWidth>x.clientWidth+1&&x.clientWidth>0).slice(0,15).map(x=>({tag:x.tagName,cls:x.className&&String(x.className),text:(x.textContent||"").slice(0,80),width:x.clientWidth,scroll:x.scrollWidth}))};')
+                    assert overflow['scroll'] <= overflow['width'], overflow
+                    screenshot('preview-mobile-paper-name.png')
+                    assert js('return window.qaErrors;') == []
+                    (ROOT/'validation-browser-mobile-name.json').write_text(json.dumps({'status':'passed','checks':['Mobile long-name structure card fits viewport'],'slurm_job_id':os.environ['SLURM_JOB_ID'],'javascript_errors':[]},indent=2)+'\n')
+                    return
                 screenshot('preview-desktop.png')
                 results.append('63 papers rendered in Firefox')
                 js('let s=document.querySelector("#search");s.value="JBJ-07-149";s.dispatchEvent(new Event("input",{bubbles:true}));')
@@ -143,6 +158,48 @@ def main():
                     assert not report['javascript_errors']
                     (ROOT/'validation-browser-routes.json').write_text(json.dumps(report,indent=2)+'\n')
                     return
+                if phase == 'names':
+                    # A paper name yields an unverified candidate, with no implied
+                    # identity when the label was not actually near that name.
+                    qian = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010").id;')
+                    route('paper/'+qian+'/compounds')
+                    js('''let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010"),c=p.cm["1"];
+                      let basis=JSON.stringify({response:p.response_sha256,pdf:p.source_sha256,compound:c.compound_id,
+                        reference:c.structure_review?.chembl&&[c.structure_review.chembl.molecule_id,c.structure_review.chembl.smiles],
+                        provided:c.structure_review?.provided?.smiles||null,candidates:c.structure_review.agent_runs.map(r=>[r.run_id,r.candidates.map(a=>a.smiles)])});
+                      localStorage.setItem(`cellpotency-smiles-review:${p.id}:${c.compound_id}`,JSON.stringify({basis,note:'Older paper note',structure_verdicts:{}}));''')
+                    js('Array.from(document.querySelectorAll("button[data-compound]")).find(e=>e.dataset.compound==="1").click();')
+                    assert js('return document.querySelector("#detail").textContent.includes("Paper-name / OPSIN candidate");') is True
+                    assert js('return document.querySelector("#detail").textContent.includes("Paper number not confirmed");') is True
+                    assert js('return document.querySelector("#detail").textContent.includes("PDF p. 1");') is True
+                    assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') >= 1
+                    old_note = js('let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010"),d=document.querySelector("#detail"),s=localStorage.getItem(`cellpotency-smiles-review:${p.id}:1`);return {warning:d.textContent.includes("verdict is inactive"),note:d.textContent.includes("Older paper note"),stored:!!s,current:d.querySelector("[data-review-note]").value};')
+                    assert old_note['warning'] and old_note['note'], old_note
+                    js('document.querySelector("[data-structure-verdict]").value="matches_paper";document.querySelector("[data-review-note]").value="New source review";document.querySelector("[data-save-review]").click();')
+                    assert js('let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010");return JSON.parse(localStorage.getItem(`cellpotency-smiles-review:${p.id}:1`)).history[0].note;') == 'Older paper note'
+                    js('document.querySelector("[data-action=close]").click();Array.from(document.querySelectorAll("button[data-compound]")).find(e=>e.dataset.compound==="1").click();')
+                    assert js('return document.querySelector("[data-structure-verdict]").value;') == 'matches_paper'
+                    js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010");p.cm["1"].structure_review.paper_name_candidates[0].mentions[0].pdf_page++;Array.from(document.querySelectorAll("button[data-compound]")).find(e=>e.dataset.compound==="1").click();')
+                    assert js('return document.querySelector("[data-structure-verdict]").value;') == 'unreviewed'
+                    assert js('return document.querySelector("#detail").textContent.includes("verdict is inactive");') is True
+                    js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Qian2010");p.cm["1"].structure_review.paper_name_candidates[0].mentions[0].pdf_page--;')
+                    gonzalez = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="c3_Gonzalez2023").id;')
+                    route('paper/'+gonzalez+'/compounds')
+                    js('document.querySelector("button[data-compound=c19]").click();')
+                    assert js('return document.querySelector("#detail").textContent.includes("Conflicting names or structures");') is True
+                    assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') == 2
+                    screenshot('preview-name-conflict.png')
+                    js('document.querySelector("[data-action=close]").click();')
+                    route('papers')
+                    assert js('return document.querySelector(".smiles-coverage").textContent.includes("290 / 605");') is True
+                    js('document.querySelector("[data-action=reset]").click();let s=document.querySelector("[data-filter=smiles]");s.value="name_candidate";s.dispatchEvent(new Event("change",{bubbles:true}));')
+                    assert js('return +document.querySelector("#result-count").textContent;') == js('return window.CELL_POTENCY_DATA.papers.filter(p=>p.compounds.some(c=>c.structure_review.paper_name_candidates.length)).length;')
+                    results.append('Paper-name candidate sources, identity uncertainty, conflicting graphs, filter and review invalidation work')
+                    assert js('return window.qaErrors;') == []
+                    report = {'status':'passed','checks':results,'slurm_job_id':os.environ['SLURM_JOB_ID'],'browser':'Installed Firefox ESR','javascript_errors':[]}
+                    (ROOT/'validation-browser-names.json').write_text(json.dumps(report,indent=2)+'\n')
+                    print(json.dumps(report,indent=2))
+                    return
                 route('papers')
                 js('document.querySelector("[data-action=reset]").click();let s=document.querySelector("[data-filter=smiles]");s.value="candidate";s.dispatchEvent(new Event("change",{bubbles:true}));')
                 assert js('return document.querySelector("#result-count").textContent;') == '4'
@@ -150,11 +207,23 @@ def main():
                 ndubaku = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015").id;')
                 route('paper/'+ndubaku+'/compounds')
                 assert js('return document.querySelectorAll("[data-compound]").length;') > 0
+                js('''let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015"),c=p.cm.cmp_4;
+                  let basis=JSON.stringify({response:p.response_sha256,pdf:p.source_sha256,compound:c.compound_id,
+                    reference:c.structure_review?.chembl&&[c.structure_review.chembl.molecule_id,c.structure_review.chembl.smiles],
+                    provided:c.structure_review?.provided?.smiles||null,candidates:c.structure_review.agent_runs.filter(r=>r.run_id!=="smiles_controls_name_followup_2026-11-10").map(r=>[r.run_id,r.candidates.map(a=>a.smiles)])});
+                  localStorage.setItem(`cellpotency-smiles-review:${p.id}:${c.compound_id}`,JSON.stringify({basis,note:'Previously saved note',structure_verdicts:{chembl:'matches_paper'}}));''')
                 js('document.querySelector("[data-compound=cmp_4]").click();')
+                assert js('return document.querySelector("[data-review-note]").value;') == 'Previously saved note'
+                assert js('return document.querySelector("[data-structure-verdict=chembl]").value;') == 'matches_paper'
+                # A newly prepared run with no candidates must not invalidate an
+                # existing review of otherwise identical structures.
+                js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015");p.cm.cmp_4.structure_review.agent_runs.push({run_id:"smiles_controls_name_followup_2026-11-10",status:"pending",candidates:[]});document.querySelector("[data-compound=cmp_4]").click();')
+                assert js('return document.querySelector("[data-review-note]").value;') == 'Previously saved note'
+                js('document.querySelector("[data-action=close]").click();let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015");p.cm.cmp_4.structure_review.agent_runs.pop();document.querySelector("[data-compound=cmp_4]").click();')
                 assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') == 2
                 assert js('return document.querySelector("#detail").textContent.includes("Connectivity differs from ChEMBL");') is True
                 assert js('return document.querySelectorAll("#detail .smiles-string textarea").length;') == 2
-                assert js('return document.querySelector("#detail").textContent.includes("further extraction is pending");') is True
+                assert js('return document.querySelector("#detail").textContent.includes("further extraction is pending");') == js('let p=window.CELL_POTENCY_DATA.papers.find(p=>p.folder==="Ndubaku2015");return p.cm.cmp_4.structure_review.agent_runs.some(r=>r.status==="pending");')
                 screenshot('preview-smiles.png')
                 js('document.querySelector("[data-structure-verdict=chembl]").value="matches_paper";document.querySelector("[data-review-note]").value="Synthetic browser QA note";document.querySelector("[data-save-review]").click();')
                 assert js('return document.querySelector(".review-status").textContent.includes("Saved in this browser only");') is True
@@ -200,6 +269,7 @@ def main():
                 js('document.querySelector("[data-compound=cmp_4]").click();')
                 screenshot('preview-mobile-smiles.png')
                 assert js('return document.querySelectorAll("#detail .chemical-drawing svg").length;') == 2
+                js('document.querySelector("[data-action=close]").click();')
                 assert js('return window.qaErrors;') == []
                 results.append('Mobile paper list and paper record fit viewport; compound dialog renders')
                 report = {'status':'passed','checks':results,'slurm_job_id':os.environ['SLURM_JOB_ID'],'browser':'Installed Firefox ESR','javascript_errors':[]}

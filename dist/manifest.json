@@ -80,7 +80,7 @@
   "classification_sha256": "40c88754b2f8af0812b088b974ada94a42fae1ed51fc1d6cf519426517b8d762",
   "pair_audit_path": "verification/figures/pair_counts_all_verified-11173496/pair_audit.json",
   "pair_audit_sha256": "c347c0643e77266b806490d2701a5dd0d282ebcebcace375b91ae39f771225aa",
-  "exporter_sha256": "61b8a78498293a47408d74a6f88befe51b3fef5809eaef6c29f14ac314f6b60b",
+  "exporter_sha256": "e6aa9b4fcd5753d3f36dfdf38efdec6fbff406724cc63945c53bbf94c9114d1c",
   "pdfs_included": false,
   "paid_calls": 0,
   "structure_inputs": {
@@ -92,14 +92,26 @@
     "verification/smiles_controls_2026-11-10/evaluation.json": "e124a2fcd1f0980fa560bbf4bd343ed58e37d2e8379c144afb78375a3dd695ab",
     "verification/smiles_controls_followup_2026-11-10/plan.json": "df1852479e812e04cb1ff858f1a2bf7aaeca0fd35a3214f3216449372bda5fde",
     "verification/smiles_controls_followup_2026-11-10/compounds.json": "9d48044e27f3efff692f9096b5ea06086f68914afd736b6b802e7b97a4731f79",
-    "verification/smiles_controls_followup_2026-11-10/evaluation.json": "56e2f0b6c9c1db88b67780332ded95467cfe1dea4f46a30be557fc2a2f24e080"
+    "verification/smiles_controls_followup_2026-11-10/evaluation.json": "56e2f0b6c9c1db88b67780332ded95467cfe1dea4f46a30be557fc2a2f24e080",
+    "verification/smiles_controls_followup_2026-11-10/SUPERSEDED.json": "5222ad49e34c99e4ca23f9d727d078802a2feb9d2d898a9dbeb5d57eae7c3d8a",
+    "verification/smiles_controls_name_followup_2026-11-10/plan.json": "36634b686f25df9436b7b20dd9c47b474530eb4ef32388c14e0c1d47e61dc325",
+    "verification/smiles_controls_name_followup_2026-11-10/compounds.json": "9d48044e27f3efff692f9096b5ea06086f68914afd736b6b802e7b97a4731f79",
+    "verification/smiles_controls_name_followup_2026-11-10/evaluation.json": "a9a1cbd0b28ac90082045daea90d9b7da4d745c0272a0d5b82be6449782cd9b4",
+    "verification/smiles_opsin_name_audit_2026-11-10_v4/plan.json": "326814fbe59040a255c38e595cdd7a153a17e16a0fb9eca1a125ba017fb353cb",
+    "verification/smiles_opsin_name_audit_2026-11-10_v4/mentions.json": "026c0027961f9029452011516e8280e3bb7b7a6b9138da088d175cfbaa9c8c6c",
+    "verification/smiles_opsin_name_audit_2026-11-10_v4/candidate_names.csv": "427cedaaa411463a049f7fc0590b91e7057156c137587c83a2f3cb1e0cb7c3a4",
+    "verification/smiles_opsin_name_audit_2026-11-10_v4/summary.json": "81c76e72d8d7698e1f453382d8fbb79650734d66fca711192cc28634b583853f",
+    "scripts/opsin_name_audit.py": "2c340b8e88c7ee9248d540f557c98e341a0383e05c815a86fb4b348c958a758e"
   },
   "structure_summary": {
-    "with_smiles": 236,
+    "with_smiles": 290,
     "with_chembl": 236,
     "with_agent_candidate": 6,
+    "with_paper_name_candidate": 54,
+    "paper_name_identity_unconfirmed": 4,
+    "paper_name_conflicting_graphs": 2,
     "chembl_mapping_flagged": 11,
     "human_accepted": 0,
-    "without_smiles": 369
+    "without_smiles": 315
   }
 }

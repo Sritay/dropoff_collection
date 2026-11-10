@@ -17,10 +17,12 @@ from pathlib import Path
 CLASSIFICATION = 'verification/reason_classification_v3/combined-63-review-11173496/reasons_classified.json'
 AUDIT = 'verification/figures/pair_counts_all_verified-11173496/pair_audit.json'
 CHEMBL = 'verification/chembl37_structure_lookup-11217655/smiles_matched.csv'
+OPSIN_AUDIT = 'verification/smiles_opsin_name_audit_2026-11-10_v4'
 STRUCTURE_RUNS = [
     'verification/smiles_pilot_ready',
     'verification/smiles_controls_2026-11-10',
     'verification/smiles_controls_followup_2026-11-10',
+    'verification/smiles_controls_name_followup_2026-11-10',
 ]
 
 
@@ -79,7 +81,7 @@ def attach_structures(root, papers):
         provided = compound.get('provided_smiles')
         compound['structure_review'] = {'has_smiles': bool(provided), 'chembl': None,
             'provided': {'smiles': provided, 'graph': graph(provided)} if provided else None,
-            'agent_runs': [], 'human_accepted': False}
+            'agent_runs': [], 'paper_name_candidates': [], 'human_accepted': False}
     matched = root / CHEMBL
     inputs[CHEMBL] = sha(matched)
     seen = set()
@@ -105,10 +107,11 @@ def attach_structures(root, papers):
         folder = root / run_name
         if not (folder / 'compounds.json').is_file():
             continue
-        for name in ['plan.json', 'compounds.json', 'evaluation.json']:
+        for name in ['plan.json', 'compounds.json', 'evaluation.json', 'SUPERSEDED.json']:
             path = folder / name
             if path.is_file():
                 inputs[str(path.relative_to(root))] = sha(path)
+        superseded = (folder / 'SUPERSEDED.json').is_file()
         plan = read(folder / 'plan.json')
         plan_id = plan['plan_id']
         payload = {k: v for k, v in plan.items() if k != 'plan_id'}
@@ -123,8 +126,8 @@ def attach_structures(root, papers):
             assert identity in expected_ids and identity not in run_seen
             run_seen.add(identity)
             assert paper['source_sha256'] in {d['sha256'] for d in row['documents']}, ('Stale candidate PDF', identity)
-            entry = {'run_id': folder.name, 'plan_id': plan_id, 'status': row['status'],
-                     'reason': 'No candidate saved in this extraction.' if row['status'] == 'unresolved' else
+            entry = {'run_id': folder.name, 'plan_id': plan_id, 'status': 'superseded' if superseded else row['status'],
+                     'reason': 'Superseded before submission.' if superseded else 'No candidate saved in this extraction.' if row['status'] == 'unresolved' else
                                'Extraction pending.' if row['status'] == 'pending' else '', 'candidates': [],
                      'evaluation': {k: scores[identity][k] for k in ['classification', 'reference_flags']
                                     if k in scores[identity]} if identity in scores else None}
@@ -152,6 +155,72 @@ def attach_structures(root, papers):
                 compound['structure_review']['human_accepted'] |= accepted
             compound['structure_review']['agent_runs'].append(entry)
         assert run_seen == expected_ids, ('Missing structure run rows', folder.name)
+
+    # Systematic names matched to the original paper are candidate evidence, not
+    # a database lookup, an independently verified identity or an acceptance.
+    from potency.smiles.inventory import check_plan
+    audit_folder = root / OPSIN_AUDIT
+    summary = read(audit_folder / 'summary.json')
+    assert summary['status'] == 'completed' and summary['paid_calls'] == summary['network_calls'] == 0
+    for filename, key in [('plan.json', 'plan_sha256'), ('mentions.json', 'mentions_sha256'),
+                          ('candidate_names.csv', 'candidate_names_csv_sha256')]:
+        path = audit_folder / filename
+        assert sha(path) == summary[key], ('Changed OPSIN audit artifact', filename)
+        inputs[str(path.relative_to(root))] = sha(path)
+    assert sha(root / 'scripts/opsin_name_audit.py') == summary['audit_script_sha256'], 'Changed OPSIN audit script'
+    inputs[OPSIN_AUDIT + '/summary.json'] = sha(audit_folder / 'summary.json')
+    inputs['scripts/opsin_name_audit.py'] = summary['audit_script_sha256']
+    audit_plan = read(audit_folder / 'plan.json')
+    assert Path(audit_plan['root']).resolve() == root.resolve(), 'OPSIN audit is from another project'
+    assert audit_plan['plan_id'] == summary['plan_id'], 'Wrong OPSIN audit plan'
+    check_plan(audit_plan)  # Verifies plan fingerprint, selection, overlay, canonical responses and every source PDF.
+    plan_papers = {p['paper_id']: p for p in audit_plan['papers']}
+    assert len(plan_papers) == len(audit_plan['papers'])
+    expected_ids = {(p['paper_id'], c['compound_id']) for p in audit_plan['papers'] for c in p['compounds']}
+    assert len(expected_ids) == summary['target_compounds']
+    grouped = {}
+    mentions = read(audit_folder / 'mentions.json')
+    assert len(mentions) == summary['source_name_mentions']
+    for m in mentions:
+        paper, compound = joined(m)
+        identity = paper['folder'], compound['compound_id']
+        assert identity in expected_ids, ('Name candidate outside unresolved inventory', identity)
+        assert compound['structure_review']['chembl'] is None, ('Existing ChEMBL match in unresolved audit', identity)
+        ap = plan_papers[identity[0]]
+        assert m['source_response'] == ap['source_response'] and m['response_sha256'] == ap['response_sha256']
+        matching_docs = [d for d in ap['documents'] if d['path'] == m['source_pdf'] and d['sha256'] == m['source_pdf_sha256']]
+        assert len(matching_docs) == 1 and m['source_pdf_sha256'] == paper['source_sha256'], ('Wrong name source PDF', identity)
+        assert type(m['pdf_page']) is int and m['pdf_page'] > 0 and type(m['label_near_name']) is bool
+        assert m['source'] in {'canonical_name_matched_to_paper', 'numbered_paper_heading_candidate'}
+        if not m.get('validation'):
+            assert m['status'] == 'unresolved'
+            continue
+        assert m['status'] == 'candidate_needs_manual_paper_identity_and_stereo_review'
+        assert m['validation']['identity_verified'] is False
+        smiles = m['validation']['canonical_smiles']
+        g = graph(smiles)
+        assert g['valid'] and g['canonical_smiles'] == smiles, ('Invalid name-derived graph', identity)
+        item = grouped.setdefault((*identity, smiles), {'smiles': smiles, 'graph': g, 'mentions': [],
+            'review_flags': set(), 'opsin_statuses': set(), 'human_accepted': False})
+        source = {'name': m['name'], 'file_name': Path(m['source_pdf']).name, 'pdf_page': m['pdf_page'],
+                  'label_near_name': m['label_near_name'], 'source': m['source']}
+        if source not in item['mentions']:
+            item['mentions'].append(source)
+        item['review_flags'].update(m['review_flags'])
+        item['opsin_statuses'].add(m['opsin']['status'])
+    per_identity = Counter((pid, cid) for pid, cid, _ in grouped)
+    assert len(per_identity) == summary['distinct_compounds_with_valid_candidates']
+    assert sum(v > 1 for v in per_identity.values()) == summary['conflicting_candidate_compounds']
+    assert len({(pid, cid) for (pid, cid, _), v in grouped.items() if any(m['label_near_name'] for m in v['mentions'])}) == summary['distinct_compounds_with_valid_candidate_and_nearby_label']
+    for (pid, cid, _), item in sorted(grouped.items()):
+        item['mentions'].sort(key=lambda m: (m['file_name'], m['pdf_page'], m['name'], m['source']))
+        item['review_flags'] = sorted(item['review_flags'])
+        item['opsin_statuses'] = sorted(item['opsin_statuses'])
+        item['identity_unconfirmed'] = not any(m['label_near_name'] for m in item['mentions'])
+        item['different_name_graphs'] = per_identity[(pid, cid)] > 1
+        c = by_compound[(pid, cid)][1]
+        c['structure_review']['paper_name_candidates'].append(item)
+        c['structure_review']['has_smiles'] = True
     counts = Counter()
     for p in papers:
         for c in p['compounds']:
@@ -159,6 +228,9 @@ def attach_structures(root, papers):
             counts['with_smiles'] += bool(s['has_smiles'])
             counts['with_chembl'] += bool(s['chembl'])
             counts['with_agent_candidate'] += any(r['candidates'] for r in s['agent_runs'])
+            counts['with_paper_name_candidate'] += bool(s['paper_name_candidates'])
+            counts['paper_name_identity_unconfirmed'] += bool(s['paper_name_candidates'] and all(v['identity_unconfirmed'] for v in s['paper_name_candidates']))
+            counts['paper_name_conflicting_graphs'] += any(v['different_name_graphs'] for v in s['paper_name_candidates'])
             counts['chembl_mapping_flagged'] += bool(s['chembl'] and s['chembl']['review_flags'])
             counts['human_accepted'] += bool(s['human_accepted'])
     counts['without_smiles'] = len(by_compound) - counts['with_smiles']
@@ -330,7 +402,7 @@ def export(root, output):
             writer.writerow({k: "'" + v if isinstance(v, str) and v.startswith(('=', '+', '-', '@')) else v for k, v in row.items()})
     with (output / 'structures.csv').open('w', newline='') as handle:
         fields = ['paper_id', 'paper', 'doi', 'compound_id', 'compound_label', 'has_smiles',
-                  'chembl_smiles', 'chembl_molecule_id', 'chembl_review_flags', 'agent_candidates',
+                  'chembl_smiles', 'chembl_molecule_id', 'chembl_review_flags', 'agent_candidates', 'paper_name_candidates',
                   'human_accepted', 'paper_source_pages']
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -344,6 +416,9 @@ def export(root, output):
                        'chembl_review_flags': json.dumps(ref.get('review_flags', [])),
                        'agent_candidates': json.dumps([{'smiles': candidate['smiles'], 'comparison': candidate['comparison']}
                            for run in s['agent_runs'] for candidate in run['candidates']]),
+                       'paper_name_candidates': json.dumps([{'smiles': candidate['smiles'], 'mentions': candidate['mentions'],
+                           'review_flags': candidate['review_flags'], 'identity_unconfirmed': candidate['identity_unconfirmed'],
+                           'different_name_graphs': candidate['different_name_graphs']} for candidate in s['paper_name_candidates']], ensure_ascii=False),
                        'human_accepted': s['human_accepted'], 'paper_source_pages': json.dumps([
                            {k: sources[sid][k] for k in ['file_name', 'pdf_page', 'label', 'bbox'] if k in sources[sid]}
                            for sid in c.get('structure_source_ids', []) if sid in sources])}

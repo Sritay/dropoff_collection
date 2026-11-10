@@ -20,6 +20,9 @@
     let html=s.has_smiles?badge('Has SMILES','green'):badge('No SMILES yet');
     if(s.chembl)html+=badge('ChEMBL reference');
     if(candidates(c).length)html+=badge('Agent candidate · review pending','amber');
+    if(s.paper_name_candidates?.length)html+=badge('Paper-name candidate · review needed','amber');
+    if(s.paper_name_candidates?.some(a=>a.identity_unconfirmed))html+=badge('Paper number unconfirmed','amber');
+    if(s.paper_name_candidates?.some(a=>a.different_name_graphs))html+=badge('Paper-name candidates conflict','red');
     if(candidates(c).some(a=>a.comparison&&!a.comparison.exact_match))html+=badge('Differs from ChEMBL','red');
     if(s.chembl?.review_flags.length)html+=badge('Reference mapping warning','amber');
     if(s.chembl?.graph.review_flags.includes('unspecified_stereochemistry'))html+=badge('Reference stereo unspecified','amber');
@@ -33,7 +36,8 @@
   const reviewBasis = (p,c) => JSON.stringify({response:p.response_sha256,pdf:p.source_sha256,compound:c.compound_id,
     reference:c.structure_review?.chembl&&[c.structure_review.chembl.molecule_id,c.structure_review.chembl.smiles],
     provided:c.structure_review?.provided?.smiles||null,
-    candidates:(c.structure_review?.agent_runs||[]).map(r=>[r.run_id,r.candidates.map(a=>a.smiles)])});
+    candidates:(c.structure_review?.agent_runs||[]).filter(r=>r.run_id!=='smiles_controls_name_followup_2026-11-10'||r.candidates.length).map(r=>[r.run_id,r.candidates.map(a=>a.smiles)]),
+    ...(c.structure_review?.paper_name_candidates?.length?{paper_names:c.structure_review.paper_name_candidates.map(a=>[a.smiles,a.review_flags,a.mentions.map(m=>[m.name,m.file_name,m.pdf_page,m.label_near_name,m.source])])}:{})});
   function storedReview(p,c) {try{return reviewMemory.get(reviewKey(p,c))||JSON.parse(localStorage.getItem(reviewKey(p,c))||'null');}catch{return null;}}
   function currentReview(p,c) {const r=storedReview(p,c);return r?.basis===reviewBasis(p,c)?r:null;}
   function verdictControl(p,c,key) {
@@ -52,13 +56,22 @@
       cards+=structureCard(p,c,'ChEMBL reference',ref,`<p><a href="${url}" target="_blank" rel="noopener">${esc(ref.molecule_id)} · open ChEMBL ↗</a></p><p class="muted">Database assignment; confirm the paper label, attachment positions and stereochemistry.</p>${ref.review_flags.length?`<p class="structure-warning"><b>Mapping warnings:</b> ${esc(ref.review_flags.map(f=>f.replaceAll('_',' ')).join('; '))}.</p>`:''}`,'chembl');
     }
     if(s.provided)cards+=structureCard(p,c,'Previously supplied SMILES',s.provided,'<p class="muted">Supplied structure; compare with the paper.</p>','provided');
+    for(const a of s.paper_name_candidates||[]){
+      const warning=(a.identity_unconfirmed?'<p class="structure-warning"><b>Paper number not confirmed:</b> no compound label was found near this name. Check the original paper before assigning this graph.</p>':'')+
+        (a.different_name_graphs?'<p class="structure-warning"><b>Conflicting names or structures:</b> other names associated with this compound produced a different graph. Check every source before choosing.</p>':'')+
+        (a.review_flags.length?`<p class="structure-warning">Source and graph flags: ${esc(a.review_flags.map(f=>f.replaceAll('_',' ')).join('; '))}.</p>`:'');
+      const names=a.mentions.map(m=>`<li><span class="paper-chemical-name">${esc(m.name)}</span><br><span class="source-ref">${esc(m.file_name)} · PDF p. ${m.pdf_page} · ${m.label_near_name?'compound number near name':'compound number not near name'}</span></li>`).join('');
+      cards+=structureCard(p,c,'Paper-name / OPSIN candidate',a,`<p class="muted">Derived from a name located in the paper; compound identity and stereochemistry require your review.</p>${warning}<details open><summary>Names and paper locations</summary><ul class="paper-name-list">${names}</ul></details>`,`paper-name:${a.graph.drawing_key}`);
+    }
     for(const run of s.agent_runs||[]){run.candidates.forEach((a,i)=>{
       const comparison=a.comparison?(a.comparison.exact_match?badge('Automated match to ChEMBL · not paper-verified','green'):badge(a.comparison.connectivity_match?'Stereochemistry differs from ChEMBL':'Connectivity differs from ChEMBL','red')):badge('No ChEMBL comparison available','amber');
       cards+=structureCard(p,c,'Agent candidate',a,`<div class="candidate-comparison">${comparison}</div><p class="muted">Unverified extraction candidate. Check the drawing and compound number independently.</p>${a.ambiguities.length?`<p class="structure-warning"><b>Assignment ambiguities:</b> ${esc(a.ambiguities.join('; '))}</p>`:''}${a.review_flags.length?`<p class="structure-warning">Candidate limitations: ${esc(a.review_flags.map(f=>f.replaceAll('_',' ')).join('; '))}</p>`:''}<details><summary>Candidate assignment and paper locations</summary><p>${esc((a.identity_basis||'Assignment note not available.').replace(/\b(?:MolParser|MolScribe|RGReco|Gemini)\b[^.!?]*(?:[.!?]|$)/gi,''))}</p>${a.evidence.map(e=>`<span class="source-ref">PDF p. ${e.pdf_page} · ${esc(e.label||e.file_name)}</span>`).join('')}</details>`,`candidate:${run.run_id}:${i}`);
     });}
     const pending=(s.agent_runs||[]).some(run=>run.status==='pending');
     const unresolved=(s.agent_runs||[]).some(run=>run.status==='unresolved');
-    return `<section class="structure-review"><h3>SMILES comparison</h3><div>${structureBadges(c)}</div><p class="notice">Compare the structure drawings and exact SMILES with the original paper and ChEMBL. An automated graph match is separate from your paper review; all stereochemical and mapping warnings remain visible.</p><p>Paper structure locations: ${sources(p,c.structure_source_ids)||'Not recorded'} · ${doiLink(p)}</p>${pending?'<p class="pending-note">A further extraction is pending. Earlier candidates remain available below.</p>':''}${unresolved?'<p class="pending-note">One extraction left this compound unresolved.</p>':''}<div class="smiles-grid">${cards||'<p class="muted">No SMILES is available for this compound yet. Use the paper label and cited source pages.</p>'}</div><div id="structure-review-form" data-paper="${p.id}" data-compound="${esc(c.compound_id)}"><h4>Your manual review notes</h4><p class="muted">Choose a verdict separately for each displayed SMILES. These notes stay in this browser; they are not shared or added to the research dataset. Download a backup before changing browsers.</p>${old&&!r?'<p class="structure-warning">An older note was for different source or structure data. Its verdict is inactive; recheck the current structures before saving.</p>':''}<label class="check"><input type="checkbox" data-paper-viewed ${r?.paper_viewed?'checked':''}> I viewed the paper structure source</label><label class="check"><input type="checkbox" data-chembl-viewed ${r?.chembl_viewed?'checked':''} ${!s.chembl?'disabled':''}> I viewed the ChEMBL entry</label><label>Review note<textarea data-review-note rows="3" placeholder="Compound label, attachments, stereo and any discrepancy…">${esc(r?.note||'')}</textarea></label><div class="review-actions"><button class="button" data-save-review>Save in this browser</button><button class="button secondary" data-download-reviews>Download all my reviews JSON</button></div><p class="review-status" role="status">${r?'Saved browser-local review loaded.':''}</p></div></section>`;
+    const previous=[...(old?.history||[]),...(old&&!r?[old]:[])];
+    const history=previous.length?`<details><summary>Earlier notes for different source or structure data</summary>${previous.map(v=>`<p>${esc(v.note||'No note recorded.')}</p>`).join('')}</details>`:'';
+    return `<section class="structure-review"><h3>SMILES comparison</h3><div>${structureBadges(c)}</div><p class="notice">Compare the structure drawings and exact SMILES with the original paper and ChEMBL. An automated graph match is separate from your paper review; all stereochemical and mapping warnings remain visible.</p><p>Paper structure locations: ${sources(p,c.structure_source_ids)||'Not recorded'} · ${doiLink(p)}</p>${pending?'<p class="pending-note">A further extraction is pending. Earlier candidates remain available below.</p>':''}${unresolved?'<p class="pending-note">One extraction left this compound unresolved.</p>':''}<div class="smiles-grid">${cards||'<p class="muted">No SMILES is available for this compound yet. Use the paper label and cited source pages.</p>'}</div><div id="structure-review-form" data-paper="${p.id}" data-compound="${esc(c.compound_id)}"><h4>Your manual review notes</h4><p class="muted">Choose a verdict separately for each displayed SMILES. These notes stay in this browser; they are not shared or added to the research dataset. Download a backup before changing browsers.</p>${old&&!r?'<p class="structure-warning">An older note was for different source or structure data. Its verdict is inactive; recheck the current structures before saving.</p>':''}${history}<label class="check"><input type="checkbox" data-paper-viewed ${r?.paper_viewed?'checked':''}> I viewed the paper structure source</label><label class="check"><input type="checkbox" data-chembl-viewed ${r?.chembl_viewed?'checked':''} ${!s.chembl?'disabled':''}> I viewed the ChEMBL entry</label><label>Review note<textarea data-review-note rows="3" placeholder="Compound label, attachments, stereo and any discrepancy…">${esc(r?.note||'')}</textarea></label><div class="review-actions"><button class="button" data-save-review>Save in this browser</button><button class="button secondary" data-download-reviews>Download all my reviews JSON</button></div><p class="review-status" role="status">${r?'Saved browser-local review loaded.':''}</p></div></section>`;
   }
   function openCompound(p,c) {
     document.querySelector('#detail-content').innerHTML=`<div class="dialog-top"><span class="eyebrow">COMPOUND STRUCTURES</span><button class="close" aria-label="Close compound details" data-action="close">×</button></div><h2 id="dialog-title">${esc(name(c))}</h2><p class="muted">Paper label ${esc(c.label)} · ${esc(p.folder.replace(/^c3_/,''))}</p>${structurePanel(p,c)}`;
@@ -74,6 +87,9 @@
       structure_verdicts:Object.fromEntries([...document.querySelectorAll('#detail [data-structure-verdict]')].map(e=>[e.dataset.structureVerdict,e.value])),
       paper_viewed:form.querySelector('[data-paper-viewed]').checked,chembl_viewed:form.querySelector('[data-chembl-viewed]').checked,
       note:form.querySelector('[data-review-note]').value,updated_at:new Date().toISOString()};
+    const old=storedReview(p,c);
+    if(old?.history?.length)value.history=old.history;
+    if(old&&old.basis!==value.basis){const {history,...version}=old;value.history=[...(value.history||[]),version];}
     reviewMemory.set(reviewKey(p,c),value);let persistent=true;
     try{localStorage.setItem(reviewKey(p,c),JSON.stringify(value));}catch{persistent=false;}
     form.querySelector('.review-status').textContent=persistent?'Saved in this browser only. Download a backup to retain your work.':'Browser storage unavailable. Notes remain in this open tab; download them now.';
@@ -105,7 +121,7 @@
       <label>Target<select data-filter="target"><option value="">All targets</option>${options(targets.map(t=>[t,t]),state.target)}</select></label>
       <label>Publication year<select data-filter="year"><option value="">All years</option>${options(unique(D.papers.map(p=>p.year)).sort((a,b)=>b-a).map(y=>[String(y),y]),state.year)}</select></label>
       <label>Reason status<select data-filter="status"><option value="">All statuses</option>${options(['supported','proposed','ruled_out','mixed','unclear'].map(s=>[s,s.replace('_',' ')]),state.status)}</select></label>
-      <label>SMILES availability<select data-filter="smiles"><option value="">All compounds</option>${options([['present','Has SMILES'],['missing','No SMILES yet'],['candidate','Has agent candidate'],['mismatch','Candidate differs from ChEMBL']],state.smiles)}</select></label>
+      <label>SMILES availability<select data-filter="smiles"><option value="">All compounds</option>${options([['present','Has SMILES'],['missing','No SMILES yet'],['name_candidate','Has paper-name candidate'],['name_conflict','Conflicting paper-name candidates'],['candidate','Has agent candidate'],['mismatch','Candidate differs from ChEMBL']],state.smiles)}</select></label>
       <label class="check"><input type="checkbox" data-filter="linked" ${state.linked?'checked':''}> With supported / proposed reasons</label>
       <a class="download" href="pairs.csv" download>↓ Download all pairs <span>CSV</span></a><a class="download" href="structures.csv" download>↓ Compound SMILES <span>CSV</span></a><a class="download" href="data.json" download>↓ Complete dataset <span>JSON</span></a>
     </aside>`;
@@ -115,6 +131,8 @@
     const s=c.structure_review||{};
     if(state.smiles==='present')return !!s.has_smiles;
     if(state.smiles==='missing')return !s.has_smiles;
+    if(state.smiles==='name_candidate')return !!s.paper_name_candidates?.length;
+    if(state.smiles==='name_conflict')return (s.paper_name_candidates||[]).some(a=>a.different_name_graphs);
     if(state.smiles==='candidate')return (s.agent_runs||[]).some(r=>r.candidates.length);
     if(state.smiles==='mismatch')return (s.agent_runs||[]).some(r=>r.candidates.some(a=>a.comparison&&!a.comparison.exact_match));
     return true;
@@ -134,7 +152,7 @@
   }
   function renderBrowse(view) {
     state.view=view;
-    main.innerHTML=`<section class="intro"><div class="eyebrow">BIOCHEMICAL & CELLULAR POTENCY</div><h1>Compare potencies across papers.</h1><p>Search papers and compounds, compare potencies, and read the authors’ explanations.</p>${stats()}<p class="smiles-coverage"><b>${D.structure_summary.with_smiles} / ${D.summary.compounds} compounds have SMILES</b> · ${D.structure_summary.with_chembl} ChEMBL references · ${D.structure_summary.with_agent_candidate} also have agent candidates. Structures await your paper checks.</p>
+    main.innerHTML=`<section class="intro"><div class="eyebrow">BIOCHEMICAL & CELLULAR POTENCY</div><h1>Compare potencies across papers.</h1><p>Search papers and compounds, compare potencies, and read the authors’ explanations.</p>${stats()}<p class="smiles-coverage"><b>${D.structure_summary.with_smiles} / ${D.summary.compounds} compounds have SMILES</b> · ${D.structure_summary.with_chembl} ChEMBL references · ${D.structure_summary.with_paper_name_candidate} paper-name candidates · ${D.structure_summary.with_agent_candidate} also have agent candidates. All candidates await your paper checks.</p>
       <div class="search-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" type="search" aria-label="Search papers, compounds, targets or mechanisms" placeholder="Search a paper, compound, target or mechanism…" value="${esc(state.q)}"><kbd>/</kbd></div></section>
       <div class="workspace">${filters()}<section class="results" aria-label="Search results"><div class="results-heading"><div><span class="eyebrow">THE COLLECTION</span><h2>${view==='pairs'?'Potency pairs':'Papers'} <span id="result-count"></span></h2></div><label class="sort">Sort by <select id="sort">${(view==='papers'?[['title','Paper title'],['year','Newest first'],['pairs','Most pairs'],['claims','Most reasons']]:[['title','Paper title'],['year','Newest first'],['compound','Compound']]).map(([v,l])=>`<option value="${v}" ${v===state.sort?'selected':''}>${l}</option>`).join('')}</select></label></div><div id="results"></div></section></div>`;
     renderResults();

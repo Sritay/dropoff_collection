@@ -173,10 +173,13 @@ class DatasetTests(unittest.TestCase):
         compounds = [(p,c) for p in D['papers'] for c in p['compounds']]
         self.assertEqual(len(compounds), 605)
         summary = D['structure_summary']
-        self.assertEqual(summary['with_smiles'], 236)
+        self.assertEqual(summary['with_smiles'], 290)
         self.assertEqual(summary['with_chembl'], 236)
-        self.assertEqual(summary['without_smiles'], 369)
+        self.assertEqual(summary['without_smiles'], 315)
         self.assertEqual(summary['with_agent_candidate'], 6)
+        self.assertEqual(summary['with_paper_name_candidate'], 54)
+        self.assertEqual(summary['paper_name_identity_unconfirmed'], 4)
+        self.assertEqual(summary['paper_name_conflicting_graphs'], 2)
         self.assertEqual(summary['chembl_mapping_flagged'], 11)
         self.assertEqual(summary['human_accepted'], 0)
         for paper,c in compounds:
@@ -186,7 +189,7 @@ class DatasetTests(unittest.TestCase):
                 self.assertEqual(ref['source_pdf_sha256'], paper['source_sha256'])
                 self.assertTrue(ref['molecule_id'].startswith('CHEMBL'))
                 self.assertTrue(ref['graph']['valid'])
-            self.assertEqual(review['has_smiles'], bool(ref or review['provided'] or any(r['candidates'] for r in review['agent_runs'])))
+            self.assertEqual(review['has_smiles'], bool(ref or review['provided'] or review['paper_name_candidates'] or any(r['candidates'] for r in review['agent_runs'])))
             self.assertFalse(review['human_accepted'])
 
     def test_candidates_and_pending_runs_do_not_replace_references(self):
@@ -205,7 +208,8 @@ class DatasetTests(unittest.TestCase):
         for cid in ['cmp_4','cmp_5']:
             c=next(c for c in ndubaku['compounds'] if c['compound_id']==cid)
             runs=c['structure_review']['agent_runs']
-            self.assertTrue(any(r['status']=='pending' for r in runs))
+            self.assertTrue(any(r['status']=='superseded' for r in runs))
+            self.assertFalse(any(r['status']=='pending' and r['run_id']=='smiles_controls_followup_2026-11-10' for r in runs))
             self.assertTrue(any(r['candidates'] and not r['candidates'][0]['comparison']['connectivity_match'] for r in runs))
         harnden = next(p for p in D['papers'] if p['folder']=='Harnden2023')
         for cid in ['cmpd_4','cmpd_5']:
@@ -226,7 +230,7 @@ class DatasetTests(unittest.TestCase):
         for paper in D['papers']:
             for c in paper['compounds']:
                 s=c['structure_review']
-                values=([s['chembl']] if s['chembl'] else [])+[a for r in s['agent_runs'] for a in r['candidates']]
+                values=([s['chembl']] if s['chembl'] else [])+[a for r in s['agent_runs'] for a in r['candidates']]+s['paper_name_candidates']
                 for value in values:
                     if value['graph']['valid']:
                         self.assertIn(value['graph']['drawing_key'],D['structure_drawings'])
@@ -236,6 +240,36 @@ class DatasetTests(unittest.TestCase):
                         self.assertNotIn('provenance',candidate)
                         for evidence in candidate['evidence']:
                             self.assertFalse(set(evidence)-{'file_name','pdf_page','bbox','label','document_sha256'})
+
+    def test_paper_name_candidates_require_review_and_keep_source_scope(self):
+        all_candidates = []
+        for paper in D['papers']:
+            for c in paper['compounds']:
+                groups = c['structure_review']['paper_name_candidates']
+                self.assertEqual(len({a['smiles'] for a in groups}), len(groups))
+                for a in groups:
+                    self.assertFalse(a['human_accepted'])
+                    self.assertEqual(a['identity_unconfirmed'], not any(m['label_near_name'] for m in a['mentions']))
+                    self.assertEqual(a['different_name_graphs'], len(groups) > 1)
+                    self.assertTrue(a['graph']['valid'] and a['mentions'])
+                    for m in a['mentions']:
+                        self.assertEqual(set(m), {'name','file_name','pdf_page','label_near_name','source'})
+                        self.assertEqual(Path(m['file_name']).name, m['file_name'])
+                        self.assertGreater(m['pdf_page'], 0)
+                    all_candidates.append(a)
+        self.assertGreater(len(all_candidates), 54)
+        gonzalez=next(p for p in D['papers'] if p['folder']=='c3_Gonzalez2023')
+        for cid in ['c19','c20']:
+            c=next(c for c in gonzalez['compounds'] if c['compound_id']==cid)
+            self.assertEqual(len(c['structure_review']['paper_name_candidates']),2)
+            self.assertTrue(all(a['different_name_graphs'] for a in c['structure_review']['paper_name_candidates']))
+        qian=next(p for p in D['papers'] if p['folder']=='Qian2010')
+        c=next(c for c in qian['compounds'] if c['compound_id']=='1')
+        self.assertTrue(c['structure_review']['paper_name_candidates'][0]['identity_unconfirmed'])
+        manifest=json.loads((ROOT/'dist/manifest.json').read_text())
+        prefix='verification/smiles_opsin_name_audit_2026-11-10_v4/'
+        for name in ['plan.json','mentions.json','candidate_names.csv','summary.json']:
+            self.assertEqual(len(manifest['structure_inputs'][prefix+name]),64)
 
 
 if __name__ == '__main__':
