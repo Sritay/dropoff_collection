@@ -18,6 +18,9 @@ CLASSIFICATION = 'verification/reason_classification_v3/combined-63-review-11173
 AUDIT = 'verification/figures/pair_counts_all_verified-11173496/pair_audit.json'
 CHEMBL = 'verification/chembl37_structure_lookup-11217655/smiles_matched.csv'
 OPSIN_AUDIT = 'verification/smiles_opsin_name_audit_2026-11-10_v4'
+PDB_AUDIT = 'verification/smiles_pdb_ligand_audit_2026-11-10/audit.json'
+PDB_CONFIG = 'config/pdb_ligand_evidence_2026-11-10.json'
+PDB_SCRIPT = 'scripts/pdb_ligand_audit.py'
 STRUCTURE_RUNS = [
     'verification/smiles_pilot_ready',
     'verification/smiles_controls_2026-11-10',
@@ -81,7 +84,7 @@ def attach_structures(root, papers):
         provided = compound.get('provided_smiles')
         compound['structure_review'] = {'has_smiles': bool(provided), 'chembl': None,
             'provided': {'smiles': provided, 'graph': graph(provided)} if provided else None,
-            'agent_runs': [], 'paper_name_candidates': [], 'human_accepted': False}
+            'agent_runs': [], 'paper_name_candidates': [], 'pdb_candidates': [], 'human_accepted': False}
     matched = root / CHEMBL
     inputs[CHEMBL] = sha(matched)
     seen = set()
@@ -221,6 +224,52 @@ def attach_structures(root, papers):
         c = by_compound[(pid, cid)][1]
         c['structure_review']['paper_name_candidates'].append(item)
         c['structure_review']['has_smiles'] = True
+
+    # A paper-declared PDB accession and its deposited ligand are independent
+    # source evidence. Preserve their candidate status until a human checks the drawing.
+    pdb_audit = read(root / PDB_AUDIT)
+    pdb_config = read(root / PDB_CONFIG)
+    assert pdb_audit['status'] == 'completed' and pdb_audit['paid_calls'] == 0
+    assert pdb_audit['config_sha256'] == sha(root / PDB_CONFIG)
+    assert pdb_audit['script_sha256'] == sha(root / PDB_SCRIPT)
+    for path in [PDB_AUDIT, PDB_CONFIG, PDB_SCRIPT]:
+        inputs[path] = sha(root / path)
+    expected_pdb = {(r['compound_id'], r['pdb_id'], r['component_id']): r
+                    for r in pdb_config['compounds']}
+    assert len(expected_pdb) == len(pdb_config['compounds']) == len(pdb_audit['candidates'])
+    seen_pdb = set()
+    for row in pdb_audit['candidates']:
+        paper, compound = joined(row)
+        identity = (row['compound_id'], row['pdb_id'], row['component_id'])
+        assert identity in expected_pdb and identity not in seen_pdb
+        seen_pdb.add(identity)
+        expected = expected_pdb[identity]
+        assert paper['folder'] == pdb_config['paper_folder'] == row['paper_folder']
+        assert row['paper_id'] == paper['folder'] and row['paper_label'] == compound['label'] == expected['paper_label']
+        assert row['source_pdf_sha256'] == paper['source_sha256'] == pdb_config['source_pdf_sha256']
+        assert row['request_key'] == paper['request_key'] == pdb_config['request_key']
+        assert row['data_availability_pdf_page'] == pdb_config['data_availability_pdf_page']
+        assert row['figure_pdf_page'] == expected['figure_pdf_page']
+        assert row['source_pdf_name'] == paper['file_name']
+        assert row['status'] == 'candidate_needs_manual_paper_drawing_review' and row['human_accepted'] is False
+        assert row['descriptor_programs'] == ['CACTVS', 'OpenEye OEToolkits']
+        assert row['pdb_entry_url'] == 'https://www.rcsb.org/structure/' + row['pdb_id']
+        assert row['ligand_url'] == 'https://www.rcsb.org/ligand/' + row['component_id']
+        assert len(row['source_api_sha256']) == 3 and all(len(v) == 64 for v in row['source_api_sha256'].values())
+        g = graph(row['canonical_smiles'])
+        assert g['valid'] and g['canonical_smiles'] == row['canonical_smiles']
+        assert g['formula'] == row['formula']
+        assert Chem.MolToInchiKey(Chem.MolFromSmiles(row['canonical_smiles'])) == row['inchikey']
+        assert compound['structure_review']['chembl'] is None, 'PDB audit is for a previously unresolved compound'
+        compound['structure_review']['pdb_candidates'].append({
+            'smiles': row['canonical_smiles'], 'graph': g, 'pdb_id': row['pdb_id'],
+            'component_id': row['component_id'], 'component_name': row['component_name'],
+            'inchikey': row['inchikey'], 'entry_url': row['pdb_entry_url'], 'ligand_url': row['ligand_url'],
+            'data_availability_pdf_page': row['data_availability_pdf_page'],
+            'figure_pdf_page': row['figure_pdf_page'], 'paper_label': row['paper_label'],
+            'review_flags': row['review_flags'], 'human_accepted': False})
+        compound['structure_review']['has_smiles'] = True
+    assert seen_pdb == set(expected_pdb)
     counts = Counter()
     for p in papers:
         for c in p['compounds']:
@@ -229,6 +278,7 @@ def attach_structures(root, papers):
             counts['with_chembl'] += bool(s['chembl'])
             counts['with_agent_candidate'] += any(r['candidates'] for r in s['agent_runs'])
             counts['with_paper_name_candidate'] += bool(s['paper_name_candidates'])
+            counts['with_pdb_candidate'] += bool(s['pdb_candidates'])
             counts['paper_name_identity_unconfirmed'] += bool(s['paper_name_candidates'] and all(v['identity_unconfirmed'] for v in s['paper_name_candidates']))
             counts['paper_name_conflicting_graphs'] += any(v['different_name_graphs'] for v in s['paper_name_candidates'])
             counts['chembl_mapping_flagged'] += bool(s['chembl'] and s['chembl']['review_flags'])
@@ -386,7 +436,7 @@ def export(root, output):
                'pairs_with_eligible_reasons': sum(bool(p['eligible_claim_ids']) for d in papers for p in d['pairs']),
                'classification_methods': dict(Counter(c['classification']['classification_method'] for p in papers for c in p['claims']))}
     assert (summary['papers'], summary['pairs'], summary['claims'], summary['pairs_with_eligible_reasons']) == (63, 979, 114, 731), summary
-    dataset = {'schema_version': 2, 'ratio_method':'concentration_units_and_negative_log_molar_v2', 'corpus_date': '2026-11-06', 'structure_date': '2026-11-10',
+    dataset = {'schema_version': 2, 'ratio_method':'concentration_units_and_negative_log_molar_v2', 'corpus_date': '2026-11-06', 'structure_date': '2026-11-11',
                'structure_summary': structure_summary, 'structure_drawings': structure_drawings, 'summary': summary,
                'taxonomy': read(root / 'config/reason_taxonomy.json')['causes'], 'papers': papers}
     output.mkdir(parents=True, exist_ok=True)
@@ -402,7 +452,7 @@ def export(root, output):
             writer.writerow({k: "'" + v if isinstance(v, str) and v.startswith(('=', '+', '-', '@')) else v for k, v in row.items()})
     with (output / 'structures.csv').open('w', newline='') as handle:
         fields = ['paper_id', 'paper', 'doi', 'compound_id', 'compound_label', 'has_smiles',
-                  'chembl_smiles', 'chembl_molecule_id', 'chembl_review_flags', 'agent_candidates', 'paper_name_candidates',
+                  'chembl_smiles', 'chembl_molecule_id', 'chembl_review_flags', 'agent_candidates', 'paper_name_candidates', 'pdb_candidates',
                   'human_accepted', 'paper_source_pages']
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -419,6 +469,10 @@ def export(root, output):
                        'paper_name_candidates': json.dumps([{'smiles': candidate['smiles'], 'mentions': candidate['mentions'],
                            'review_flags': candidate['review_flags'], 'identity_unconfirmed': candidate['identity_unconfirmed'],
                            'different_name_graphs': candidate['different_name_graphs']} for candidate in s['paper_name_candidates']], ensure_ascii=False),
+                       'pdb_candidates': json.dumps([{'smiles': candidate['smiles'], 'pdb_id': candidate['pdb_id'],
+                           'component_id': candidate['component_id'], 'figure_pdf_page': candidate['figure_pdf_page'],
+                           'data_availability_pdf_page': candidate['data_availability_pdf_page'],
+                           'review_flags': candidate['review_flags']} for candidate in s['pdb_candidates']]),
                        'human_accepted': s['human_accepted'], 'paper_source_pages': json.dumps([
                            {k: sources[sid][k] for k in ['file_name', 'pdf_page', 'label', 'bbox'] if k in sources[sid]}
                            for sid in c.get('structure_source_ids', []) if sid in sources])}

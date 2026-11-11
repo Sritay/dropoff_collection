@@ -20,14 +20,14 @@ def main():
     assert os.environ.get('SLURM_JOB_ID'), 'Use Slurm for browser QA.'
     phase = os.environ.get('CELL_SITE_QA_PHASE')
     if not phase:
-        for part in ['routes', 'flow', 'names', 'mobile-name']:
+        for part in ['routes', 'flow', 'names', 'pdb', 'mobile-name']:
             print('Starting fresh browser session:', part, flush=True)
             subprocess.run([sys.executable, str(Path(__file__).resolve())],
                            env={**os.environ, 'CELL_SITE_QA_PHASE': part}, check=True)
-        reports = [json.loads((ROOT / f'validation-browser-{part}.json').read_text()) for part in ['routes', 'flow', 'names', 'mobile-name']]
+        reports = [json.loads((ROOT / f'validation-browser-{part}.json').read_text()) for part in ['routes', 'flow', 'names', 'pdb', 'mobile-name']]
         report = {'status': 'passed', 'checks': list(dict.fromkeys(c for r in reports for c in r['checks'])),
                   'slurm_job_id': os.environ['SLURM_JOB_ID'], 'browser': 'Installed Firefox ESR',
-                  'javascript_errors': [], 'isolated_sessions': ['routes', 'flow', 'names', 'mobile-name']}
+                  'javascript_errors': [], 'isolated_sessions': ['routes', 'flow', 'names', 'pdb', 'mobile-name']}
         (ROOT/'validation-browser.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
         return
@@ -105,6 +105,27 @@ def main():
                     screenshot('preview-mobile-paper-name.png')
                     assert js('return window.qaErrors;') == []
                     (ROOT/'validation-browser-mobile-name.json').write_text(json.dumps({'status':'passed','checks':['Mobile long-name structure card fits viewport'],'slurm_job_id':os.environ['SLURM_JOB_ID'],'javascript_errors':[]},indent=2)+'\n')
+                    return
+                if phase == 'pdb':
+                    baell = js('return window.CELL_POTENCY_DATA.papers.find(p=>p.folder.startsWith("Baell et al.")).id;')
+                    route('paper/'+baell+'/compounds')
+                    for cid, entry, ligand, page in [('comp_wm8014','6BA2','7KM','2'),('comp_wm1119','6CT2','FCV','4')]:
+                        js(f'document.querySelector("button[data-compound={cid}]").click();')
+                        evidence = js('let d=document.querySelector("#detail");return {text:d.textContent,drawings:d.querySelectorAll(".chemical-drawing svg").length,links:[...d.querySelectorAll(".smiles-card a")].map(a=>a.href)};')
+                        assert 'PDB ligand candidate' in evidence['text'] and 'review needed' in evidence['text'].lower(), evidence
+                        assert 'PDF p. 5' in evidence['text'] and 'p. '+page in evidence['text'], evidence
+                        assert evidence['drawings'] == 1 and any('/structure/'+entry in u for u in evidence['links'])
+                        assert any('/ligand/'+ligand in u for u in evidence['links'])
+                        if cid == 'comp_wm8014': screenshot('preview-pdb-ligand.png')
+                        js('document.querySelector("[data-action=close]").click();')
+                    route('papers')
+                    js('document.querySelector("[data-action=reset]").click();let s=document.querySelector("[data-filter=smiles]");s.value="pdb_candidate";s.dispatchEvent(new Event("change",{bubbles:true}));')
+                    assert js('return document.querySelector("#result-count").textContent;') == '1'
+                    assert js('return window.qaErrors;') == []
+                    report={'status':'passed','checks':['Two PDB ligand candidates show distinct accession/CCD links, source pages, drawings and review warnings; filter finds one paper'],
+                            'slurm_job_id':os.environ['SLURM_JOB_ID'],'browser':'Installed Firefox ESR','javascript_errors':[]}
+                    (ROOT/'validation-browser-pdb.json').write_text(json.dumps(report,indent=2)+'\n')
+                    print(json.dumps(report,indent=2))
                     return
                 screenshot('preview-desktop.png')
                 results.append('63 papers rendered in Firefox')
@@ -191,7 +212,7 @@ def main():
                     screenshot('preview-name-conflict.png')
                     js('document.querySelector("[data-action=close]").click();')
                     route('papers')
-                    assert js('return document.querySelector(".smiles-coverage").textContent.includes("290 / 605");') is True
+                    assert js('return document.querySelector(".smiles-coverage").textContent.includes("292 / 605");') is True
                     js('document.querySelector("[data-action=reset]").click();let s=document.querySelector("[data-filter=smiles]");s.value="name_candidate";s.dispatchEvent(new Event("change",{bubbles:true}));')
                     assert js('return +document.querySelector("#result-count").textContent;') == js('return window.CELL_POTENCY_DATA.papers.filter(p=>p.compounds.some(c=>c.structure_review.paper_name_candidates.length)).length;')
                     results.append('Paper-name candidate sources, identity uncertainty, conflicting graphs, filter and review invalidation work')

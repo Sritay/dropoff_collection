@@ -63,8 +63,9 @@ scientific regression expectations together; do not silently absorb new files.
 The 10 November SMILES overlay is independently joined by the canonical paper-local
 compound ID, exact response/PDF hashes and request key. It adds 236 ChEMBL reference
 entries across the same 605 compounds. A separate audit of names found in paper PDFs
-adds candidates for 54 previously unresolved compounds, bringing the total with at
-least one SMILES to 290; 315 still have none. These name-derived structures remain
+adds candidates for 54 previously unresolved compounds. A separate, paper-mapped
+PDB ligand audit adds WM-8014 and WM-1119 as candidates, bringing the total with at
+least one SMILES to 292; 313 still have none. These candidates remain
 unverified. Four compounds lack a nearby paper label for their names, and two have
 conflicting name-derived graphs. Both limitations are shown explicitly. Six of the 236
 also have unverified extraction candidates. Four candidates match their ChEMBL graph
@@ -74,7 +75,11 @@ graph-level stereochemical limitations remain visible separately.
 
 Structure data come from `verification/chembl37_structure_lookup-11217655/smiles_matched.csv`
 the explicit original pilot/control/follow-up resolver exports, and the hash-bound
-`verification/smiles_opsin_name_audit_2026-11-10_v4` audit. The manifest
+`verification/smiles_opsin_name_audit_2026-11-10_v4` and
+`verification/smiles_pdb_ligand_audit_2026-11-10` audits. The PDB audit maps the
+paper's data-availability accession statement to exact deposited ligand IDs and
+checks independent canonical descriptors, formula and InChIKey with RDKit. It does
+not promote either ligand to a human-verified paper structure. The manifest
 records every overlay input hash. Only scientific fields and source locations are
 published: no model request payloads, crop text/images, backend setup, budgets,
 ledgers or node-local paths. The existing RDKit installation generates local structure
@@ -89,7 +94,7 @@ does not assign that licence to the original papers, PDFs or the rest of the cor
 ## Manual SMILES checks
 
 Open **Compounds & SMILES** for a paper, then **Compare**. The dialog shows ChEMBL
-references, paper-name/OPSIN candidates and agent candidates separately, with local molecular drawings,
+references, paper-name/OPSIN candidates, PDB ligand candidates and agent candidates separately, with local molecular drawings,
 copyable exact SMILES, the ChEMBL entry link, paper page/table locations and
 automated graph comparison. Neither an automated match nor a valid graph verifies
 the paper assignment or complete stereochemistry. A valid name conversion does not

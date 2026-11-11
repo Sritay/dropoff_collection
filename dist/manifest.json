@@ -80,7 +80,7 @@
   "classification_sha256": "40c88754b2f8af0812b088b974ada94a42fae1ed51fc1d6cf519426517b8d762",
   "pair_audit_path": "verification/figures/pair_counts_all_verified-11173496/pair_audit.json",
   "pair_audit_sha256": "c347c0643e77266b806490d2701a5dd0d282ebcebcace375b91ae39f771225aa",
-  "exporter_sha256": "e6aa9b4fcd5753d3f36dfdf38efdec6fbff406724cc63945c53bbf94c9114d1c",
+  "exporter_sha256": "844346be3a91ee4ab657c00aa253f509f492a1c8d98f786fd0f34e2bdd2a4f6e",
   "pdfs_included": false,
   "paid_calls": 0,
   "structure_inputs": {
@@ -101,17 +101,21 @@
     "verification/smiles_opsin_name_audit_2026-11-10_v4/mentions.json": "026c0027961f9029452011516e8280e3bb7b7a6b9138da088d175cfbaa9c8c6c",
     "verification/smiles_opsin_name_audit_2026-11-10_v4/candidate_names.csv": "427cedaaa411463a049f7fc0590b91e7057156c137587c83a2f3cb1e0cb7c3a4",
     "verification/smiles_opsin_name_audit_2026-11-10_v4/summary.json": "81c76e72d8d7698e1f453382d8fbb79650734d66fca711192cc28634b583853f",
-    "scripts/opsin_name_audit.py": "2c340b8e88c7ee9248d540f557c98e341a0383e05c815a86fb4b348c958a758e"
+    "scripts/opsin_name_audit.py": "2c340b8e88c7ee9248d540f557c98e341a0383e05c815a86fb4b348c958a758e",
+    "verification/smiles_pdb_ligand_audit_2026-11-10/audit.json": "360dee87101e47a6bc3cc59e11ab9e43137b5073366a0891ad54f306761f851c",
+    "config/pdb_ligand_evidence_2026-11-10.json": "45a6f5758ed75636aec41ea54d138c92ce35ddf0a459f928cbfb87ec60fa4f91",
+    "scripts/pdb_ligand_audit.py": "a11da4d83832a8f5fa0631d5897c1c3d7b23aeca0194551f4d5b5ef471ed3270"
   },
   "structure_summary": {
-    "with_smiles": 290,
+    "with_smiles": 292,
     "with_chembl": 236,
     "with_agent_candidate": 6,
     "with_paper_name_candidate": 54,
+    "with_pdb_candidate": 2,
     "paper_name_identity_unconfirmed": 4,
     "paper_name_conflicting_graphs": 2,
     "chembl_mapping_flagged": 11,
     "human_accepted": 0,
-    "without_smiles": 315
+    "without_smiles": 313
   }
 }

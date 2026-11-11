@@ -173,11 +173,12 @@ class DatasetTests(unittest.TestCase):
         compounds = [(p,c) for p in D['papers'] for c in p['compounds']]
         self.assertEqual(len(compounds), 605)
         summary = D['structure_summary']
-        self.assertEqual(summary['with_smiles'], 290)
+        self.assertEqual(summary['with_smiles'], 292)
         self.assertEqual(summary['with_chembl'], 236)
-        self.assertEqual(summary['without_smiles'], 315)
+        self.assertEqual(summary['without_smiles'], 313)
         self.assertEqual(summary['with_agent_candidate'], 6)
         self.assertEqual(summary['with_paper_name_candidate'], 54)
+        self.assertEqual(summary['with_pdb_candidate'], 2)
         self.assertEqual(summary['paper_name_identity_unconfirmed'], 4)
         self.assertEqual(summary['paper_name_conflicting_graphs'], 2)
         self.assertEqual(summary['chembl_mapping_flagged'], 11)
@@ -189,8 +190,30 @@ class DatasetTests(unittest.TestCase):
                 self.assertEqual(ref['source_pdf_sha256'], paper['source_sha256'])
                 self.assertTrue(ref['molecule_id'].startswith('CHEMBL'))
                 self.assertTrue(ref['graph']['valid'])
-            self.assertEqual(review['has_smiles'], bool(ref or review['provided'] or review['paper_name_candidates'] or any(r['candidates'] for r in review['agent_runs'])))
+            self.assertEqual(review['has_smiles'], bool(ref or review['provided'] or review['paper_name_candidates'] or review['pdb_candidates'] or any(r['candidates'] for r in review['agent_runs'])))
             self.assertFalse(review['human_accepted'])
+
+    def test_pdb_ligands_keep_paper_mapping_and_review_status(self):
+        paper=next(p for p in D['papers'] if p['folder'].startswith('Baell et al.'))
+        expected={'comp_wm8014':('WM-8014','6BA2','7KM',2),
+                  'comp_wm1119':('WM-1119','6CT2','FCV',4)}
+        for c in paper['compounds']:
+            label,pdb_id,component_id,page=expected[c['compound_id']]
+            s=c['structure_review']
+            self.assertIsNone(s['chembl'])
+            self.assertEqual(len(s['pdb_candidates']),1)
+            candidate=s['pdb_candidates'][0]
+            self.assertEqual((candidate['paper_label'],candidate['pdb_id'],candidate['component_id'],candidate['figure_pdf_page']),
+                             (label,pdb_id,component_id,page))
+            self.assertEqual(candidate['data_availability_pdf_page'],5)
+            self.assertTrue(candidate['graph']['valid'])
+            self.assertEqual(candidate['smiles'],candidate['graph']['canonical_smiles'])
+            self.assertFalse(candidate['human_accepted'])
+            self.assertIn('confirm_paper_drawing_and_stereochemistry',candidate['review_flags'])
+        manifest=json.loads((ROOT/'dist/manifest.json').read_text())
+        for path in ['verification/smiles_pdb_ligand_audit_2026-11-10/audit.json',
+                     'config/pdb_ligand_evidence_2026-11-10.json','scripts/pdb_ligand_audit.py']:
+            self.assertEqual(len(manifest['structure_inputs'][path]),64)
 
     def test_candidates_and_pending_runs_do_not_replace_references(self):
         exact = mismatch = 0
@@ -230,7 +253,7 @@ class DatasetTests(unittest.TestCase):
         for paper in D['papers']:
             for c in paper['compounds']:
                 s=c['structure_review']
-                values=([s['chembl']] if s['chembl'] else [])+[a for r in s['agent_runs'] for a in r['candidates']]+s['paper_name_candidates']
+                values=([s['chembl']] if s['chembl'] else [])+[a for r in s['agent_runs'] for a in r['candidates']]+s['paper_name_candidates']+s['pdb_candidates']
                 for value in values:
                     if value['graph']['valid']:
                         self.assertIn(value['graph']['drawing_key'],D['structure_drawings'])
